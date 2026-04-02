@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gestion de stock</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="top-header">
+        <img src="{{ url_for('static', filename=logo_src) }}" alt="Logo Saikoon" class="header-logo">
+        <div>
+          <p class="header-brand">Saikoon Kitchen</p>
+          <h1>Gestion de stock</h1>
+          <p class="header-subtitle">Gestion des stocks par fournisseur</p>
+        </div>
+      </header>
+
+      {% if excel_missing %}
+      <section class="notice error">
+        Fichier Excel introuvable. Ajoutez le fichier dans data/products.xlsx.
+      </section>
+      {% endif %}
+
+      <section class="split-layout">
+        <div class="left-column">
+          <section class="section-panel controls-panel">
+            <div class="control-group">
+              <label for="supplier-select">Fournisseur</label>
+              <select id="supplier-select">
+                <option value="">Selectionner un fournisseur</option>
+                {% for supplier in suppliers %}
+                <option value="{{ supplier }}">{{ supplier }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="control-group">
+              <label for="product-search">Recherche produit</label>
+              <input id="product-search" type="search" placeholder="Rechercher un produit..." disabled>
+            </div>
+
+            <div class="control-group action-group">
+              <label>Export</label>
+              <div class="action-row">
+                <a id="download-pdf" class="pdf-button" href="/api/export/pdf" target="_blank" rel="noopener">Telecharger PDF</a>
+              </div>
+            </div>
+          </section>
+
+          <section class="section-panel">
+            <div class="section-title-row">
+              <h2>Liste des produits</h2>
+              <span id="product-count" class="count-pill">0</span>
+            </div>
+            <div id="products-info" class="empty">Selectionnez un fournisseur pour afficher les produits.</div>
+            <div id="products-grid" class="product-grid"></div>
+          </section>
+        </div>
+
+        <aside class="right-column">
+          <section class="section-panel alert-panel">
+            <div class="section-title-row">
+              <h2>Alertes de stock</h2>
+              <span id="alert-count" class="count-pill">0</span>
+            </div>
+            <button type="button" id="clear-alerts-btn" class="secondary-button small">Effacer toutes les alertes</button>
+            <p class="section-hint">Cette liste affiche tous les produits avec un stock enregistre.</p>
+            <div id="alerts-empty" class="empty" hidden>Aucune alerte de stock.</div>
+            <div id="alerts-grid" class="product-grid"></div>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <div class="scroll-tools" aria-label="Navigation rapide">
+      <button type="button" id="scroll-top" class="scroll-btn" title="Monter en haut">↑</button>
+      <button type="button" id="scroll-bottom" class="scroll-btn" title="Descendre en bas">↓</button>
+    </div>
+
+    <script id="bootstrap-alerts" type="application/json">{{ alerts|tojson }}</script>
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+  </body>
+</html>
