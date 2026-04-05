@@ -20,6 +20,8 @@ let lastProductsSignature = '';
 let lastAlertsSignature = '';
 let liveSyncTimer = null;
 let liveSyncInFlight = false;
+const AUTO_SAVE_DELAY_MS = 250;
+const LIVE_SYNC_INTERVAL_MS = 1200;
 
 function buildProductsSignature(products) {
   return products
@@ -50,6 +52,20 @@ function isLowStockProduct(productOrStock) {
     : Number.parseInt(productOrStock?.stock ?? '0', 10);
 
   return !Number.isNaN(rawStock) && rawStock > 0 && rawStock <= currentThreshold;
+}
+
+function getLocalAlerts() {
+  return [...currentProducts]
+    .filter(product => isLowStockProduct(product.stock))
+    .sort((left, right) => (left.stock - right.stock) || left.name.localeCompare(right.name));
+}
+
+function refreshLocalAlertsPreview() {
+  if (!supplierSelect.value) {
+    return;
+  }
+
+  renderAlerts(getLocalAlerts(), currentThreshold);
 }
 
 function createQuantityHold(button, input, direction, onChange) {
@@ -220,7 +236,20 @@ function createProductCard(product) {
   let syncInFlight = false;
   let pendingSync = false;
 
-  applyProductCardState(card, product.stock);
+  const updatePreviewState = quantity => {
+    stockValue.textContent = String(quantity);
+    applyProductCardState(card, quantity);
+
+    const productRef = currentProducts.find(item => item.id === card.dataset.productId);
+    if (productRef) {
+      productRef.stock = quantity;
+      lastProductsSignature = buildProductsSignature(currentProducts);
+    }
+
+    refreshLocalAlertsPreview();
+  };
+
+  updatePreviewState(product.stock);
 
   image.addEventListener('error', () => {
     if (!image.src.endsWith('/images/no_image.png')) {
@@ -232,7 +261,9 @@ function createProductCard(product) {
     if (input.value === '') {
       return;
     }
-    input.value = String(parseQuantity(input));
+    const nextQuantity = parseQuantity(input);
+    input.value = String(nextQuantity);
+    updatePreviewState(nextQuantity);
     scheduleAutoSync();
   });
 
@@ -253,6 +284,7 @@ function createProductCard(product) {
     }
 
     input.value = String(quantity);
+    updatePreviewState(quantity);
     status.classList.remove('error');
     status.textContent = 'Mise a jour...';
     syncInFlight = true;
@@ -270,18 +302,15 @@ function createProductCard(product) {
       }
 
       card.dataset.stock = String(payload.stock);
-      stockValue.textContent = String(payload.stock);
-      applyProductCardState(card, payload.stock);
-
-      const productRef = currentProducts.find(item => item.id === card.dataset.productId);
-      if (productRef) {
-        productRef.stock = payload.stock;
-        lastProductsSignature = buildProductsSignature(currentProducts);
-      }
+      updatePreviewState(payload.stock);
 
       status.textContent = 'Stock mis a jour';
       await refreshAlerts();
     } catch (error) {
+      const savedStock = Number.parseInt(card.dataset.stock, 10);
+      const fallbackStock = Number.isNaN(savedStock) ? 0 : savedStock;
+      input.value = String(fallbackStock);
+      updatePreviewState(fallbackStock);
       status.classList.add('error');
       status.textContent = error.message;
     } finally {
@@ -298,7 +327,7 @@ function createProductCard(product) {
     }
     syncTimer = setTimeout(() => {
       save();
-    }, 550);
+    }, AUTO_SAVE_DELAY_MS);
   };
 
   createQuantityHold(plusBtn, input, 1, scheduleAutoSync);
@@ -423,7 +452,7 @@ function startLiveSync() {
     if (!document.hidden) {
       runLiveSyncTick();
     }
-  }, 2000);
+  }, LIVE_SYNC_INTERVAL_MS);
 }
 
 async function refreshSupplierOptions() {
