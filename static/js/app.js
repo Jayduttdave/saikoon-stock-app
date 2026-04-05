@@ -120,7 +120,7 @@ function createAlertCard(product) {
         <h3>${product.name}</h3>
         <p>${product.supplier}</p>
       </div>
-      <strong>${product.stock}/${currentThreshold}</strong>
+      <strong>${product.stock}</strong>
     </div>
     <button type="button" class="alert-delete">Masquer</button>
   `;
@@ -189,7 +189,7 @@ function applyProductCardState(card, stock) {
       badge.className = 'low-badge';
       header.appendChild(badge);
     }
-    badge.textContent = `Alerte ${stock}/${currentThreshold}`;
+    badge.textContent = `Alerte ${stock}`;
     note.classList.add('low');
     note.textContent = `Stock faible: visible dans les alertes jusqu'a ${currentThreshold}.`;
     return;
