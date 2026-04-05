@@ -59,6 +59,7 @@
               <h2>Liste des produits</h2>
               <span id="product-count" class="count-pill">0</span>
             </div>
+            <p class="section-hint">Les produits avec un stock entre 1 et {{ low_stock_threshold }} restent surlignes en rouge directement dans cette liste.</p>
             <div id="products-info" class="empty">Selectionnez un fournisseur pour afficher les produits.</div>
             <div id="products-grid" class="product-grid"></div>
           </section>
@@ -67,12 +68,12 @@
         <aside class="right-column">
           <section class="section-panel alert-panel">
             <div class="section-title-row">
-              <h2>Alertes de stock</h2>
+              <h2>Alertes stock faible</h2>
               <span id="alert-count" class="count-pill">0</span>
             </div>
             <button type="button" id="clear-alerts-btn" class="secondary-button small">Effacer toutes les alertes</button>
-            <p class="section-hint">Cette liste affiche tous les produits avec un stock enregistre.</p>
-            <div id="alerts-empty" class="empty" hidden>Aucune alerte de stock.</div>
+            <p class="section-hint">Seuls les produits avec un stock entre 1 et {{ low_stock_threshold }} apparaissent ici.</p>
+            <div id="alerts-empty" class="empty" hidden>Aucune alerte de stock faible.</div>
             <div id="alerts-grid" class="product-grid"></div>
           </section>
         </aside>

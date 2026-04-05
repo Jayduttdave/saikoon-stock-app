@@ -395,7 +395,7 @@ def low_stock_products(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
     alerts = []
     for product in products:
         stock = int(product["stock"])
-        if stock <= 0:
+        if stock <= 0 or stock > LOW_STOCK_THRESHOLD:
             continue
         dismissed_stock = dismissed.get(product["id"])
         if isinstance(dismissed_stock, int) and dismissed_stock == stock:
@@ -841,7 +841,7 @@ def update_stock(product_id: str):
         {
             "id": product_id,
             "stock": quantity,
-            "is_low_stock": quantity > 0,
+            "is_low_stock": 0 < quantity <= LOW_STOCK_THRESHOLD,
             "threshold": LOW_STOCK_THRESHOLD,
         }
     )

@@ -44,6 +44,14 @@ function normalizeText(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function isLowStockProduct(productOrStock) {
+  const rawStock = typeof productOrStock === 'number'
+    ? productOrStock
+    : Number.parseInt(productOrStock?.stock ?? '0', 10);
+
+  return !Number.isNaN(rawStock) && rawStock > 0 && rawStock <= currentThreshold;
+}
+
 function createQuantityHold(button, input, direction, onChange) {
   let holdTimeout = null;
   let holdInterval = null;
@@ -90,16 +98,18 @@ function createAlertCard(product) {
   const card = document.createElement('article');
   card.className = 'alert-card';
   card.innerHTML = `
-    <img src="/static/${product.image}" alt="${product.name}" loading="lazy">
-    <div class="alert-copy">
-      <h3>${product.name}</h3>
-      <p>${product.supplier}</p>
-      <strong>Stock: ${product.stock}</strong>
-      <button type="button" class="alert-delete">Supprimer alerte</button>
+    <img src="/static/${product.image}" alt="${product.name}" class="alert-thumb" loading="lazy">
+    <div class="alert-main">
+      <div class="alert-meta">
+        <h3>${product.name}</h3>
+        <p>${product.supplier}</p>
+      </div>
+      <strong>${product.stock}/${currentThreshold}</strong>
     </div>
+    <button type="button" class="alert-delete">Masquer</button>
   `;
 
-  const img = card.querySelector('img');
+  const img = card.querySelector('.alert-thumb');
   img.addEventListener('error', () => {
     if (!img.src.endsWith('/images/no_image.png')) {
       img.src = fallbackImage;
@@ -126,14 +136,54 @@ function createAlertCard(product) {
 function renderAlerts(alerts, threshold) {
   currentThreshold = threshold;
   alertsGrid.replaceChildren();
-  
+
   alerts.forEach(product => {
     alertsGrid.appendChild(createAlertCard(product));
   });
 
   alertCount.textContent = String(alerts.length);
   alertsEmpty.hidden = alerts.length !== 0;
+  if (clearAlertsButton) {
+    clearAlertsButton.disabled = alerts.length === 0;
+  }
+
+  document.querySelectorAll('.product-card').forEach(card => {
+    const stock = Number.parseInt(card.dataset.stock || '0', 10);
+    applyProductCardState(card, stock);
+  });
+
   lastAlertsSignature = buildAlertsSignature(alerts);
+}
+
+function applyProductCardState(card, stock) {
+  const isLow = isLowStockProduct(stock);
+  const header = card.querySelector('.product-header');
+  const note = card.querySelector('.stock-note');
+  let badge = header ? header.querySelector('.low-badge') : null;
+
+  card.classList.toggle('product-card-low', isLow);
+
+  if (!header || !note) {
+    return;
+  }
+
+  if (isLow) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'low-badge';
+      header.appendChild(badge);
+    }
+    badge.textContent = `Alerte ${stock}/${currentThreshold}`;
+    note.classList.add('low');
+    note.textContent = `Stock faible: visible dans les alertes jusqu'a ${currentThreshold}.`;
+    return;
+  }
+
+  if (badge) {
+    badge.remove();
+  }
+  note.classList.remove('low');
+  note.textContent = `Alerte active uniquement pour un stock entre 1 et ${currentThreshold}.`;
 }
 
 function createProductCard(product) {
@@ -146,8 +196,11 @@ function createProductCard(product) {
   card.innerHTML = `
     <img src="/static/${product.image}" alt="${product.name}" class="product-image" loading="lazy">
     <div class="product-body">
-      <h3>${product.name}</h3>
+      <div class="product-header">
+        <h3>${product.name}</h3>
+      </div>
       <p class="stock-line">Stock actuel: <span class="stock-value">${product.stock}</span></p>
+      <p class="stock-note">Alerte active uniquement pour un stock entre 1 et ${currentThreshold}.</p>
       <div class="qty-row">
         <button type="button" class="qty-btn" data-action="minus">-</button>
         <input type="number" class="qty-input" min="0" value="${product.stock}">
@@ -166,6 +219,8 @@ function createProductCard(product) {
   let syncTimer = null;
   let syncInFlight = false;
   let pendingSync = false;
+
+  applyProductCardState(card, product.stock);
 
   image.addEventListener('error', () => {
     if (!image.src.endsWith('/images/no_image.png')) {
@@ -216,6 +271,7 @@ function createProductCard(product) {
 
       card.dataset.stock = String(payload.stock);
       stockValue.textContent = String(payload.stock);
+      applyProductCardState(card, payload.stock);
 
       const productRef = currentProducts.find(item => item.id === card.dataset.productId);
       if (productRef) {
