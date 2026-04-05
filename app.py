@@ -9,7 +9,7 @@ from io import BytesIO
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from flask import Flask, abort, jsonify, render_template, request, send_file
@@ -21,9 +21,10 @@ from reportlab.pdfgen import canvas
 
 BASE_DIR = Path(__file__).resolve().parent
 try:
-    from supabase import create_client as _sb_create_client
+    _sb_create_client = __import__("supabase").create_client
     _SUPABASE_LIB = True
 except ImportError:
+    _sb_create_client = None
     _SUPABASE_LIB = False
 
 DATA_DIR = Path(os.environ.get("APP_DATA_DIR", str(BASE_DIR / "data")))
@@ -127,6 +128,8 @@ def _get_sb() -> Any:
     """Return (or lazily create) the Supabase client."""
     global _sb_client
     if _sb_client is None:
+        if _sb_create_client is None:
+            raise RuntimeError("Supabase client library is not available.")
         _sb_client = _sb_create_client(SUPABASE_URL, SUPABASE_KEY)
     return _sb_client
 
@@ -301,7 +304,9 @@ def load_catalog_products(excel_mtime: int) -> list[dict[str, Any]]:
 
             seen_ids.add(product_id)
             image_value = row.get(image_column) if image_column else ""
-            embedded_image = row_images.get((sheet_name, int(row_index) + 2), "")
+            sheet_key = str(sheet_name)
+            row_number = int(cast(Any, row_index)) + 2
+            embedded_image = row_images.get((sheet_key, row_number), "")
             resolved_image = resolve_image(image_value)
             if resolved_image == PLACEHOLDER_IMAGE and embedded_image:
                 resolved_image = embedded_image
