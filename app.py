@@ -6,10 +6,11 @@ import re
 import shutil
 import unicodedata
 from io import BytesIO
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 from flask import Flask, abort, jsonify, render_template, request, send_file
@@ -38,7 +39,11 @@ CUSTOM_PRODUCTS_PATH = DATA_DIR / "custom_products.json"
 DELETED_PRODUCTS_PATH = DATA_DIR / "deleted_products.json"
 PLACEHOLDER_IMAGE = "images/no_image.png"
 LOW_STOCK_THRESHOLD = 5
-APP_TIMEZONE = timezone(timedelta(hours=12))
+APP_TIMEZONE_NAME = os.environ.get("APP_TIMEZONE", "Europe/Paris")
+try:
+    APP_TIMEZONE = ZoneInfo(APP_TIMEZONE_NAME)
+except ZoneInfoNotFoundError:
+    APP_TIMEZONE = timezone.utc
 
 PRODUCT_NAME_KEYS = {"product_name", "nom_produit", "nomproduit", "name", "product"}
 IMAGE_KEYS = {"image", "photo_produit", "photoproduit", "image_path", "image_filename"}

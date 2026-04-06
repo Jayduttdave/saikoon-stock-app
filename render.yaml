@@ -11,6 +11,8 @@ services:
         value: 3.11.9
       - key: APP_DATA_DIR
         value: /var/data
+      - key: APP_TIMEZONE
+        value: Europe/Paris
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_KEY
