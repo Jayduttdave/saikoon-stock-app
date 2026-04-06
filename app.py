@@ -6,7 +6,7 @@ import re
 import shutil
 import unicodedata
 from io import BytesIO
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
@@ -38,6 +38,7 @@ CUSTOM_PRODUCTS_PATH = DATA_DIR / "custom_products.json"
 DELETED_PRODUCTS_PATH = DATA_DIR / "deleted_products.json"
 PLACEHOLDER_IMAGE = "images/no_image.png"
 LOW_STOCK_THRESHOLD = 5
+APP_TIMEZONE = timezone(timedelta(hours=12))
 
 PRODUCT_NAME_KEYS = {"product_name", "nom_produit", "nomproduit", "name", "product"}
 IMAGE_KEYS = {"image", "photo_produit", "photoproduit", "image_path", "image_filename"}
@@ -53,6 +54,10 @@ SUPABASE_KEY: str = os.environ.get("SUPABASE_SERVICE_KEY", "")
 USE_DB: bool = bool(_SUPABASE_LIB and SUPABASE_URL and SUPABASE_KEY)
 _sb_client: Any = None
 
+
+
+def local_now() -> datetime:
+    return datetime.now(APP_TIMEZONE)
 
 
 def normalize_header(value: Any) -> str:
@@ -428,7 +433,7 @@ def save_uploaded_image(uploaded_file: Any, supplier: str, product_name: str) ->
     if extension not in {".png", ".jpg", ".jpeg", ".webp"}:
         raise ValueError("Format image non supporte.")
 
-    safe_name = f"{slugify(supplier)}-{slugify(product_name)}-{int(datetime.now().timestamp())}{extension}"
+    safe_name = f"{slugify(supplier)}-{slugify(product_name)}-{int(local_now().timestamp())}{extension}"
     target_path = IMAGES_DIR / "uploads" / safe_name
     uploaded_file.save(str(target_path))
     return f"images/uploads/{safe_name}"
@@ -533,7 +538,7 @@ def build_stock_pdf(alerts: list[dict[str, Any]]) -> BytesIO:
     _, page_height = A4
 
     y = page_height - 36
-    now_text = datetime.now().strftime("%Y-%m-%d %H:%M")
+    now_text = local_now().strftime("%Y-%m-%d %H:%M")
     title = "Stock Alert Report"
     pdf.setFont("Helvetica-Bold", 14)
     pdf.drawString(28, y, title)
@@ -581,7 +586,7 @@ def append_history(product: dict[str, Any], previous_stock: int, new_stock: int)
         "supplier": product["supplier"],
         "previous_stock": previous_stock,
         "new_stock": new_stock,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": local_now().astimezone(timezone.utc).isoformat(),
     }
     if USE_DB:
         _get_sb().table("history").insert(entry).execute()
@@ -803,7 +808,7 @@ def export_pdf():
     alerts = low_stock_products(all_products)
     alerts.sort(key=lambda item: (item["stock"], item["name"].lower()))
     pdf_data = build_stock_pdf(alerts)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    timestamp = local_now().strftime("%Y%m%d_%H%M")
     file_name = f"stock_report_{timestamp}.pdf"
 
     return send_file(
