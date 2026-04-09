@@ -37,8 +37,10 @@ HISTORY_PATH = DATA_DIR / "history.json"
 ALERTS_PATH = DATA_DIR / "alerts_dismissed.json"
 CUSTOM_PRODUCTS_PATH = DATA_DIR / "custom_products.json"
 DELETED_PRODUCTS_PATH = DATA_DIR / "deleted_products.json"
+ORDERS_PATH = DATA_DIR / "orders.json"
 PLACEHOLDER_IMAGE = "images/no_image.png"
 LOW_STOCK_THRESHOLD = 5
+REORDER_THRESHOLD = 3
 APP_TIMEZONE_NAME = os.environ.get("APP_TIMEZONE", "Europe/Paris")
 try:
     APP_TIMEZONE = ZoneInfo(APP_TIMEZONE_NAME)
@@ -101,6 +103,9 @@ def ensure_data_files() -> None:
 
     if not DELETED_PRODUCTS_PATH.exists():
         DELETED_PRODUCTS_PATH.write_text("[]\n", encoding="utf-8")
+
+    if not ORDERS_PATH.exists():
+        ORDERS_PATH.write_text("[]\n", encoding="utf-8")
 
 
 def ensure_static_assets() -> None:
@@ -188,43 +193,42 @@ def identify_column(columns: dict[str, str], aliases: set[str]) -> str | None:
 
 
 def load_custom_products() -> list[dict[str, Any]]:
+    deduped: dict[str, dict[str, Any]] = {}
+
     if USE_DB:
         rows = _get_sb().table("custom_products").select("id,name,supplier,category,image").execute().data or []
-        return [
-            {
-                "id": str(r["id"]),
-                "name": str(r["name"]),
-                "supplier": str(r["supplier"]),
-                "category": str(r.get("category") or ""),
-                "image": str(r.get("image") or PLACEHOLDER_IMAGE),
+        for row in rows:
+            if not row.get("id") or not row.get("name") or not row.get("supplier"):
+                continue
+            deduped[str(row["id"])] = {
+                "id": str(row["id"]),
+                "name": str(row["name"]),
+                "supplier": str(row["supplier"]),
+                "category": str(row.get("category") or ""),
+                "image": str(row.get("image") or PLACEHOLDER_IMAGE),
                 "source": "custom",
             }
-            for r in rows
-            if r.get("id") and r.get("name") and r.get("supplier")
-        ]
+        return list(deduped.values())
 
     products = read_json(CUSTOM_PRODUCTS_PATH, [])
     if not isinstance(products, list):
         return []
 
-    valid: list[dict[str, Any]] = []
     for product in products:
         if not isinstance(product, dict):
             continue
         if not product.get("id") or not product.get("name") or not product.get("supplier"):
             continue
-        valid.append(
-            {
-                "id": str(product["id"]),
-                "name": str(product["name"]),
-                "supplier": str(product["supplier"]),
-                "category": str(product.get("category", "")),
-                "image": str(product.get("image", PLACEHOLDER_IMAGE)),
-                "source": "custom",
-            }
-        )
+        deduped[str(product["id"])] = {
+            "id": str(product["id"]),
+            "name": str(product["name"]),
+            "supplier": str(product["supplier"]),
+            "category": str(product.get("category", "")),
+            "image": str(product.get("image", PLACEHOLDER_IMAGE)),
+            "source": "custom",
+        }
 
-    return valid
+    return list(deduped.values())
 
 
 def save_custom_products(products: list[dict[str, Any]]) -> None:
@@ -265,6 +269,90 @@ def save_deleted_products(product_ids: set[str]) -> None:
             sb.table("deleted_products").insert([{"product_id": pid} for pid in product_ids]).execute()
         return
     write_json(DELETED_PRODUCTS_PATH, sorted(product_ids))
+
+
+def load_orders() -> list[dict[str, Any]]:
+    raw_orders = read_json(ORDERS_PATH, [])
+    if not isinstance(raw_orders, list):
+        return []
+
+    orders: list[dict[str, Any]] = []
+    for item in raw_orders:
+        if not isinstance(item, dict) or not item.get("product_id"):
+            continue
+
+        try:
+            order_quantity = int(item.get("order_quantity", 1))
+        except (TypeError, ValueError):
+            order_quantity = 1
+
+        order_type = str(item.get("order_type", "")).strip() or "carton"
+        status = str(item.get("status", "pending")).strip().lower() or "pending"
+        if status not in {"pending", "ordered"}:
+            status = "pending"
+
+        orders.append(
+            {
+                "product_id": str(item["product_id"]),
+                "order_type": order_type,
+                "order_quantity": max(1, order_quantity),
+                "status": status,
+                "created_at": str(item.get("created_at", "")),
+                "updated_at": str(item.get("updated_at", "")),
+            }
+        )
+
+    return orders
+
+
+def save_orders(orders: list[dict[str, Any]]) -> None:
+    write_json(ORDERS_PATH, orders)
+
+
+def remove_order_for_product(product_id: str) -> None:
+    orders = load_orders()
+    remaining_orders = [order for order in orders if order["product_id"] != product_id]
+    if len(remaining_orders) != len(orders):
+        save_orders(remaining_orders)
+
+
+def build_order_list(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    order_records = load_orders()
+    product_lookup = {product["id"]: product for product in products}
+    items: list[dict[str, Any]] = []
+
+    for order in order_records:
+        product = product_lookup.get(order["product_id"])
+        if product is None:
+            continue
+
+        stock = int(product["stock"])
+        items.append(
+            {
+                "id": product["id"],
+                "product_id": product["id"],
+                "name": product["name"],
+                "supplier": product["supplier"],
+                "image": product["image"],
+                "current_stock": stock,
+                "configured": True,
+                "needs_reorder": 0 < stock <= REORDER_THRESHOLD,
+                "order_type": order["order_type"],
+                "order_quantity": order["order_quantity"],
+                "status": order["status"],
+                "updated_at": order["updated_at"],
+            }
+        )
+
+    items.sort(
+        key=lambda item: (
+            0 if item["needs_reorder"] else 1,
+            0 if item["status"] == "pending" else 1,
+            item["current_stock"],
+            item["name"].lower(),
+        )
+    )
+    return items
 
 
 @lru_cache(maxsize=1)
@@ -464,6 +552,7 @@ def cleanup_deleted_product(product_id: str) -> None:
         sb = _get_sb()
         sb.table("stock").delete().eq("product_id", product_id).execute()
         sb.table("alerts_dismissed").delete().eq("product_id", product_id).execute()
+        remove_order_for_product(product_id)
         return
     stock_map = read_json(STOCK_PATH, {})
     if product_id in stock_map:
@@ -473,6 +562,7 @@ def cleanup_deleted_product(product_id: str) -> None:
     if product_id in dismissed:
         dismissed.pop(product_id, None)
         write_json(ALERTS_PATH, dismissed)
+    remove_order_for_product(product_id)
 
 
 def remove_custom_product_if_needed(product_id: str) -> None:
@@ -576,6 +666,79 @@ def build_stock_pdf(alerts: list[dict[str, Any]]) -> BytesIO:
     return buffer
 
 
+def draw_order_line(pdf: canvas.Canvas, y: float, order: dict[str, Any]) -> float:
+    image_path = get_static_image_path(order["image"])
+    if not image_path.exists():
+        image_path = get_static_image_path(PLACEHOLDER_IMAGE)
+
+    try:
+        pdf.drawImage(ImageReader(str(image_path)), 28, y - 40, width=30, height=30, preserveAspectRatio=True)
+    except Exception:
+        pass
+
+    status_text = "Commande envoyee" if order.get("status") == "ordered" else "A commander"
+    pdf.setFont("Helvetica-Bold", 10)
+    pdf.drawString(66, y - 9, str(order["name"])[:84])
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(66, y - 21, f"Stock: {order['current_stock']}   Type: {order['order_type']}   Qte: {order['order_quantity']}")
+    pdf.drawString(66, y - 33, f"Statut: {status_text}")
+    return y - 44
+
+
+def build_orders_pdf(orders: list[dict[str, Any]]) -> BytesIO:
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    _, page_height = A4
+
+    def draw_header(current_y: float) -> float:
+        now_text = local_now().strftime("%Y-%m-%d %H:%M")
+        pdf.setFont("Helvetica-Bold", 14)
+        pdf.drawString(28, current_y, "Order List Report")
+        current_y -= 16
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(28, current_y, f"Genere le: {now_text}")
+        return current_y - 18
+
+    y = draw_header(page_height - 36)
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(28, y, f"Commandes enregistrees ({len(orders)})")
+    y -= 16
+
+    if not orders:
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(28, y, "Aucune commande enregistree.")
+        y -= 20
+    else:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for order in orders:
+            grouped.setdefault(str(order.get("supplier") or "Autres"), []).append(order)
+
+        for supplier in sorted(grouped, key=str.casefold):
+            supplier_orders = grouped[supplier]
+            if y < 90:
+                pdf.showPage()
+                y = draw_header(page_height - 36)
+
+            pdf.setFont("Helvetica-Bold", 11)
+            pdf.drawString(28, y, f"{supplier} ({len(supplier_orders)})")
+            y -= 12
+
+            for order in supplier_orders:
+                if y < 70:
+                    pdf.showPage()
+                    y = draw_header(page_height - 36)
+                    pdf.setFont("Helvetica-Bold", 11)
+                    pdf.drawString(28, y, f"{supplier} ({len(supplier_orders)})")
+                    y -= 12
+                y = draw_order_line(pdf, y, order)
+
+            y -= 6
+
+    pdf.save()
+    buffer.seek(0)
+    return buffer
+
+
 def logo_path() -> str:
     candidates = ["images/logo.png", "images/saikoon.png", "images/saikoon_logo.png"]
     for relative in candidates:
@@ -608,11 +771,14 @@ def index() -> str:
     products = load_products()
     suppliers = list_suppliers(products)
     alerts = low_stock_products(products)
+    orders = build_order_list(products)
     return render_template(
         "index.html",
         suppliers=suppliers,
         alerts=alerts,
+        orders=orders,
         low_stock_threshold=LOW_STOCK_THRESHOLD,
+        reorder_threshold=REORDER_THRESHOLD,
         logo_src=logo_path(),
         excel_missing=not EXCEL_PATH.exists(),
     )
@@ -662,7 +828,7 @@ def dismiss_alert(product_id: str):
         abort(404, description="Produit introuvable.")
 
     stock = int(product["stock"])
-    if stock <= 0:
+    if stock <= 0 or stock > LOW_STOCK_THRESHOLD:
         abort(400, description="Alerte non active pour ce produit.")
 
     if USE_DB:
@@ -699,6 +865,130 @@ def dismiss_all_alerts():
     return jsonify({"dismissed_count": len(active_alerts)})
 
 
+@app.get("/api/orders")
+def get_orders():
+    ensure_data_files()
+    ensure_static_assets()
+    supplier = request.args.get("supplier", "").strip()
+    products = load_products()
+    if supplier:
+        products = [item for item in products if item["supplier"].casefold() == supplier.casefold()]
+
+    return jsonify({"orders": build_order_list(products), "threshold": REORDER_THRESHOLD})
+
+
+@app.delete("/api/orders")
+def delete_all_orders():
+    ensure_data_files()
+    ensure_static_assets()
+
+    supplier = request.args.get("supplier", "").strip()
+    orders = load_orders()
+    if not supplier:
+        removed_count = len(orders)
+        save_orders([])
+        return jsonify({"removed_count": removed_count})
+
+    products = load_products()
+    supplier_product_ids = {
+        item["id"]
+        for item in products
+        if item["supplier"].casefold() == supplier.casefold()
+    }
+    removed_count = sum(1 for item in orders if item["product_id"] in supplier_product_ids)
+    remaining_orders = [item for item in orders if item["product_id"] not in supplier_product_ids]
+    save_orders(remaining_orders)
+    return jsonify({"removed_count": removed_count})
+
+
+@app.post("/api/orders")
+def upsert_order():
+    ensure_data_files()
+    ensure_static_assets()
+
+    payload = request.get_json(silent=True) or {}
+    product_id = str(payload.get("product_id", "")).strip()
+    order_type = str(payload.get("order_type", "")).strip()
+    order_quantity = payload.get("order_quantity")
+
+    if not product_id:
+        abort(400, description="Produit obligatoire.")
+    if not order_type:
+        abort(400, description="Type de commande obligatoire.")
+    if not isinstance(order_quantity, int) or order_quantity <= 0:
+        abort(400, description="La quantite a commander doit etre un entier positif.")
+
+    products = load_products()
+    product = next((item for item in products if item["id"] == product_id), None)
+    if product is None:
+        abort(404, description="Produit introuvable.")
+
+    orders = load_orders()
+    timestamp = local_now().astimezone(timezone.utc).isoformat()
+    existing_order = next((item for item in orders if item["product_id"] == product_id), None)
+
+    if existing_order is None:
+        orders.append(
+            {
+                "product_id": product_id,
+                "order_type": order_type,
+                "order_quantity": order_quantity,
+                "status": "pending",
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }
+        )
+    else:
+        existing_order["order_type"] = order_type
+        existing_order["order_quantity"] = order_quantity
+        existing_order["status"] = str(existing_order.get("status", "pending") or "pending")
+        existing_order["updated_at"] = timestamp
+
+    save_orders(orders)
+    updated_orders = build_order_list(products)
+    selected_order = next((item for item in updated_orders if item["product_id"] == product_id), None)
+    return jsonify({"saved": True, "order": selected_order, "threshold": REORDER_THRESHOLD})
+
+
+@app.patch("/api/orders/<product_id>")
+def update_order_status(product_id: str):
+    ensure_data_files()
+    ensure_static_assets()
+
+    payload = request.get_json(silent=True) or {}
+    status = str(payload.get("status", "pending")).strip().lower() or "pending"
+    if status not in {"pending", "ordered"}:
+        abort(400, description="Statut de commande non supporte.")
+
+    orders = load_orders()
+    order = next((item for item in orders if item["product_id"] == product_id), None)
+    if order is None:
+        abort(404, description="Commande introuvable.")
+
+    order["status"] = status
+    order["updated_at"] = local_now().astimezone(timezone.utc).isoformat()
+    save_orders(orders)
+
+    products = load_products()
+    updated_orders = build_order_list(products)
+    selected_order = next((item for item in updated_orders if item["product_id"] == product_id), None)
+    return jsonify({"saved": True, "order": selected_order, "threshold": REORDER_THRESHOLD})
+
+
+@app.delete("/api/orders/<product_id>")
+def delete_order(product_id: str):
+    ensure_data_files()
+    ensure_static_assets()
+
+    orders = load_orders()
+    remaining_orders = [item for item in orders if item["product_id"] != product_id]
+    if len(remaining_orders) == len(orders):
+        abort(404, description="Commande introuvable.")
+
+    save_orders(remaining_orders)
+    return jsonify({"removed": True, "product_id": product_id})
+
+
 @app.post("/api/products")
 def create_product():
     ensure_data_files()
@@ -706,19 +996,21 @@ def create_product():
 
     name = request.form.get("name", "").strip()
     supplier = request.form.get("supplier", "").strip()
+    category = request.form.get("category", "").strip()
+    initial_stock = 0
     uploaded_file = request.files.get("image")
 
     if not name:
         abort(400, description="Nom de produit obligatoire.")
     if not supplier:
         abort(400, description="Fournisseur obligatoire.")
-    if uploaded_file is None or not uploaded_file.filename:
-        abort(400, description="Photo obligatoire.")
 
-    try:
-        image_path = save_uploaded_image(uploaded_file, supplier, name)
-    except ValueError as exc:
-        abort(400, description=str(exc))
+    image_path = PLACEHOLDER_IMAGE
+    if uploaded_file is not None and uploaded_file.filename:
+        try:
+            image_path = save_uploaded_image(uploaded_file, supplier, name)
+        except ValueError as exc:
+            abort(400, description=str(exc))
 
     product_id = create_unique_product_id(supplier, name)
     custom_products = load_custom_products()
@@ -727,20 +1019,27 @@ def create_product():
             "id": product_id,
             "name": name,
             "supplier": supplier,
-            "category": "",
+            "category": category,
             "image": image_path,
             "source": "custom",
         }
     )
     save_custom_products(custom_products)
 
+    deleted_ids = load_deleted_products()
+    if product_id in deleted_ids:
+        deleted_ids.discard(product_id)
+        save_deleted_products(deleted_ids)
+
     # Reset caches so the new product appears immediately.
     load_catalog_products.cache_clear()
     extract_embedded_images.cache_clear()
 
-    if not USE_DB:
+    if USE_DB:
+        _get_sb().table("stock").upsert({"product_id": product_id, "quantity": initial_stock}).execute()
+    else:
         stock_map = read_json(STOCK_PATH, {})
-        stock_map[product_id] = int(stock_map.get(product_id, 0))
+        stock_map[product_id] = initial_stock
         write_json(STOCK_PATH, stock_map)
 
     return jsonify(
@@ -748,8 +1047,9 @@ def create_product():
             "id": product_id,
             "name": name,
             "supplier": supplier,
+            "category": category,
             "image": image_path,
-            "stock": 0,
+            "stock": initial_stock,
         }
     )
 
@@ -764,9 +1064,16 @@ def delete_product(product_id: str):
     if product is None:
         abort(404, description="Produit introuvable.")
 
-    deleted_ids = load_deleted_products()
-    deleted_ids.add(product_id)
-    save_deleted_products(deleted_ids)
+    if product.get("source") != "custom":
+        deleted_ids = load_deleted_products()
+        deleted_ids.add(product_id)
+        save_deleted_products(deleted_ids)
+    else:
+        deleted_ids = load_deleted_products()
+        if product_id in deleted_ids:
+            deleted_ids.discard(product_id)
+            save_deleted_products(deleted_ids)
+
     cleanup_deleted_product(product_id)
     remove_custom_product_if_needed(product_id)
 
@@ -824,6 +1131,29 @@ def export_pdf():
     )
 
 
+@app.get("/api/export/orders/pdf")
+def export_orders_pdf():
+    ensure_data_files()
+    ensure_static_assets()
+
+    all_products = load_products()
+    supplier = request.args.get("supplier", "").strip()
+    if supplier:
+        all_products = [item for item in all_products if item["supplier"].casefold() == supplier.casefold()]
+
+    orders = build_order_list(all_products)
+    pdf_data = build_orders_pdf(orders)
+    timestamp = local_now().strftime("%Y%m%d_%H%M")
+    file_name = f"order_report_{timestamp}.pdf"
+
+    return send_file(
+        pdf_data,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=file_name,
+    )
+
+
 @app.post("/api/products/<product_id>/stock")
 def update_stock(product_id: str):
     ensure_data_files()
@@ -857,7 +1187,9 @@ def update_stock(product_id: str):
             "id": product_id,
             "stock": quantity,
             "is_low_stock": 0 < quantity <= LOW_STOCK_THRESHOLD,
+            "needs_reorder": 0 < quantity <= REORDER_THRESHOLD,
             "threshold": LOW_STOCK_THRESHOLD,
+            "reorder_threshold": REORDER_THRESHOLD,
         }
     )
 

@@ -13,71 +13,154 @@
   </head>
   <body>
     <main class="app-shell">
-      <header class="top-header">
-        <img src="{{ url_for('static', filename=logo_src) }}" alt="Logo Saikoon" class="header-logo">
-        <div>
-          <p class="header-brand">Saikoon Kitchen</p>
-          <h1>Gestion de stock</h1>
-          <p class="header-subtitle">Gestion des stocks par fournisseur</p>
-        </div>
-      </header>
+      <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
 
-      {% if excel_missing %}
-      <section class="notice error">
-        Fichier Excel introuvable. Ajoutez le fichier dans data/products.xlsx.
-      </section>
-      {% endif %}
+      <aside id="app-sidebar" class="app-sidebar" aria-label="Navigation principale">
+        <button type="button" id="sidebar-close-btn" class="sidebar-close" aria-label="Fermer le menu">×</button>
 
-      <section class="split-layout">
-        <div class="left-column">
-          <section class="section-panel controls-panel">
-            <div class="control-group">
-              <label for="supplier-select">Fournisseur</label>
-              <select id="supplier-select">
-                <option value="">Selectionner un fournisseur</option>
-                {% for supplier in suppliers %}
-                <option value="{{ supplier }}">{{ supplier }}</option>
-                {% endfor %}
-              </select>
-            </div>
-
-            <div class="control-group">
-              <label for="product-search">Recherche produit</label>
-              <input id="product-search" type="search" placeholder="Rechercher un produit..." disabled>
-            </div>
-
-            <div class="control-group action-group">
-              <label>Export</label>
-              <div class="action-row">
-                <a id="download-pdf" class="pdf-button" href="/api/export/pdf" target="_blank" rel="noopener">Telecharger PDF</a>
-              </div>
-            </div>
-          </section>
-
-          <section class="section-panel">
-            <div class="section-title-row">
-              <h2>Liste des produits</h2>
-              <span id="product-count" class="count-pill">0</span>
-            </div>
-            <p class="section-hint">Les produits avec un stock entre 1 et {{ low_stock_threshold }} restent surlignes en rouge directement dans cette liste.</p>
-            <div id="products-info" class="empty">Selectionnez un fournisseur pour afficher les produits.</div>
-            <div id="products-grid" class="product-grid"></div>
-          </section>
+        <div class="sidebar-brand-panel">
+          <img src="{{ url_for('static', filename=logo_src) }}" alt="Logo Saikoon" class="sidebar-logo">
+          <div class="sidebar-brand-copy">
+            <p class="sidebar-brand">Saikoon Kitchen</p>
+            <p class="sidebar-title">Stock &amp; Order Hub</p>
+            <p class="sidebar-subtitle">Navigation moderne et responsive</p>
+          </div>
         </div>
 
-        <aside class="right-column">
-          <section class="section-panel alert-panel">
-            <div class="section-title-row">
-              <h2>Alertes stock faible</h2>
-              <span id="alert-count" class="count-pill">0</span>
+        <nav class="sidebar-nav">
+          <button type="button" class="sidebar-nav-button is-active" data-target="stock-management-section">
+            <span class="nav-icon">1</span>
+            <span class="nav-copy">
+              <strong>Gestion du stock</strong>
+              <small>Alertes, fournisseurs, produits</small>
+            </span>
+          </button>
+
+          <button type="button" class="sidebar-nav-button" data-target="ordering-section">
+            <span class="nav-icon">2</span>
+            <span class="nav-copy">
+              <strong>Commande produits</strong>
+              <small>Liste de commande par fournisseur</small>
+            </span>
+          </button>
+        </nav>
+      </aside>
+
+      <div class="app-content">
+        <header class="top-header">
+          <div class="header-left">
+            <button type="button" id="menu-toggle" class="menu-toggle" aria-label="Ouvrir le menu" aria-controls="app-sidebar" aria-expanded="false">
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
+            <div>
+              <p class="header-brand">Saikoon Kitchen</p>
+              <h1>Gestion de stock</h1>
+              <p class="header-subtitle">Gestion des stocks et commandes par fournisseur</p>
             </div>
-            <button type="button" id="clear-alerts-btn" class="secondary-button small">Effacer toutes les alertes</button>
-            <p class="section-hint">Seuls les produits avec un stock entre 1 et {{ low_stock_threshold }} apparaissent ici.</p>
-            <div id="alerts-empty" class="empty" hidden>Aucune alerte de stock faible.</div>
-            <div id="alerts-grid" class="product-grid"></div>
-          </section>
-        </aside>
-      </section>
+          </div>
+
+        </header>
+
+        {% if excel_missing %}
+        <section class="notice error">
+          Fichier Excel introuvable. Ajoutez le fichier dans data/products.xlsx.
+        </section>
+        {% endif %}
+
+        <section id="stock-management-section" class="workspace-section is-visible">
+          <div class="workspace-heading">
+            <div>
+              <p class="section-eyebrow">Espace 1</p>
+              <h2>Gestion du stock</h2>
+              <p class="section-description">Choisissez un fournisseur, recherchez les produits et ajustez le stock en gardant les alertes visibles.</p>
+            </div>
+            <a href="#ordering-section" class="section-link">Aller aux commandes</a>
+          </div>
+
+          <div class="workspace-grid stock-grid">
+            <aside class="workspace-side">
+              <section class="section-panel alert-panel">
+                <div class="section-title-row">
+                  <h2>Alertes stock faible</h2>
+                  <span id="alert-count" class="count-pill">0</span>
+                </div>
+                <button type="button" id="clear-alerts-btn" class="secondary-button small">Effacer toutes les alertes</button>
+                <p class="section-hint">Les produits avec un stock entre 1 et {{ low_stock_threshold }} apparaissent ici.</p>
+                <div id="alerts-empty" class="empty" hidden>Aucune alerte de stock faible.</div>
+                <div id="alerts-grid" class="product-grid"></div>
+              </section>
+            </aside>
+
+            <div class="workspace-main">
+              <section class="section-panel controls-panel">
+                <div class="control-group">
+                  <label for="supplier-select">Fournisseur</label>
+                  <select id="supplier-select">
+                    <option value="">Selectionner un fournisseur</option>
+                    {% for supplier in suppliers %}
+                    <option value="{{ supplier }}">{{ supplier }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <div class="control-group">
+                  <label for="product-search">Recherche produit</label>
+                  <input id="product-search" type="search" placeholder="Rechercher un produit..." disabled>
+                </div>
+
+                <div class="control-group action-group">
+                  <label>Actions</label>
+                  <div class="action-row">
+                    <button type="button" id="open-add-product" class="secondary-button accent-button">Ajouter produit</button>
+                    <a id="download-pdf" class="pdf-button" href="/api/export/pdf" target="_blank" rel="noopener">Telecharger PDF</a>
+                  </div>
+                </div>
+              </section>
+
+              <section class="section-panel">
+                <div class="section-title-row">
+                  <h2>Liste des produits</h2>
+                  <span id="product-count" class="count-pill">0</span>
+                </div>
+                <p class="section-hint">Les produits avec un stock entre 1 et {{ low_stock_threshold }} restent surlignes en rouge directement dans cette liste.</p>
+                <div id="products-info" class="empty">Selectionnez un fournisseur pour afficher les produits.</div>
+                <div id="products-grid" class="product-grid"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section id="ordering-section" class="workspace-section">
+          <div class="workspace-heading">
+            <div>
+              <p class="section-eyebrow">Espace 2</p>
+              <h2>Commande des produits</h2>
+              <p class="section-description">Quand un produit devient faible, vous pouvez l'ajouter ici sans changer votre workflow actuel.</p>
+            </div>
+            <a href="#stock-management-section" class="section-link">Retour au stock</a>
+          </div>
+
+          <div class="workspace-grid ordering-grid">
+            <div class="workspace-main workspace-main-full">
+              <section class="section-panel orders-panel">
+                <div class="section-title-row">
+                  <h2>Liste de commande</h2>
+                  <span id="order-count" class="count-pill">0</span>
+                </div>
+                <button type="button" id="clear-orders-btn" class="secondary-button small">Effacer toutes les commandes</button>
+                <div class="orders-toolbar">
+                  <a id="download-orders-pdf" class="pdf-button" href="/api/export/orders/pdf" target="_blank" rel="noopener">Telecharger PDF commande</a>
+                </div>
+                <p class="section-hint">Vous pouvez maintenant ajouter n'importe quel produit a la commande depuis la liste des produits ou les alertes. Les commandes restent groupees par fournisseur.</p>
+                <div id="orders-empty" class="empty" hidden>Aucun produit ajoute a la liste de commande.</div>
+                <div id="orders-grid" class="product-grid"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+      </div>
     </main>
 
     <div class="scroll-tools" aria-label="Navigation rapide">
@@ -85,7 +168,79 @@
       <button type="button" id="scroll-bottom" class="scroll-btn" title="Descendre en bas">↓</button>
     </div>
 
+    <div id="product-modal" class="modal-backdrop" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
+        <div class="section-title-row modal-title-row">
+          <h2 id="product-modal-title">Ajouter un produit</h2>
+          <button type="button" id="product-close-btn" class="secondary-button small">Fermer</button>
+        </div>
+        <form id="product-form" class="order-form" enctype="multipart/form-data">
+          <div class="control-group">
+            <label for="product-name">Nom du produit</label>
+            <input id="product-name" name="name" type="text" maxlength="120" required>
+          </div>
+
+          <div class="control-group">
+            <label for="product-supplier">Fournisseur</label>
+            <select id="product-supplier" name="supplier" required>
+              <option value="">Selectionner un fournisseur</option>
+              {% for supplier in suppliers %}
+              <option value="{{ supplier }}">{{ supplier }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label for="product-image">Photo du produit</label>
+            <input id="product-image" name="image" type="file" accept="image/*">
+            <p class="control-help">Le nouveau produit sera ajoute avec un stock initial a 0. Si aucune image n'est choisie, l'image par defaut sera utilisee.</p>
+          </div>
+
+          <p id="product-form-status" class="form-status" aria-live="polite"></p>
+
+          <div class="order-form-actions">
+            <button type="button" id="product-cancel-btn" class="secondary-button">Annuler</button>
+            <button type="submit" id="product-save-btn" class="pdf-button">Ajouter</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="order-modal" class="modal-backdrop" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="order-modal-title">
+        <div class="section-title-row modal-title-row">
+          <h2 id="order-modal-title">Ajouter a la commande</h2>
+          <button type="button" id="order-close-btn" class="secondary-button small">Fermer</button>
+        </div>
+        <p id="order-modal-product" class="order-modal-product"></p>
+        <form id="order-form" class="order-form">
+          <div class="control-group">
+            <label for="order-type">Type de commande</label>
+            <select id="order-type" name="order_type" required>
+              <option value="card">Card</option>
+              <option value="carton" selected>Carton</option>
+              <option value="pieces">Pieces / Species</option>
+              <option value="autre">Autre</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label for="order-quantity">Quantite a commander</label>
+            <input id="order-quantity" name="order_quantity" type="number" min="1" value="1" required>
+          </div>
+
+          <p id="order-form-status" class="form-status" aria-live="polite"></p>
+
+          <div class="order-form-actions">
+            <button type="button" id="order-cancel-btn" class="secondary-button">Annuler</button>
+            <button type="submit" id="order-save-btn" class="pdf-button">Enregistrer</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <script id="bootstrap-alerts" type="application/json">{{ alerts|tojson }}</script>
+    <script id="bootstrap-orders" type="application/json">{{ orders|tojson }}</script>
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
   </body>
 </html>
