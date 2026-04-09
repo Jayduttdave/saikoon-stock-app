@@ -57,8 +57,9 @@ let lastOrdersSignature = '';
 let liveSyncTimer = null;
 let liveSyncInFlight = false;
 let activeOrderProduct = null;
-const AUTO_SAVE_DELAY_MS = 250;
-const LIVE_SYNC_INTERVAL_MS = 1200;
+const pendingStockSyncIds = new Set();
+const AUTO_SAVE_DELAY_MS = 450;
+const LIVE_SYNC_INTERVAL_MS = 2500;
 const DESKTOP_LAYOUT_BREAKPOINT = 1280;
 
 function buildProductsSignature(products) {
@@ -89,6 +90,26 @@ function parseQuantity(input) {
 
 function normalizeText(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function isEditingQuantityInput() {
+  const activeElement = document.activeElement;
+  return Boolean(activeElement && activeElement.classList && activeElement.classList.contains('qty-input'));
+}
+
+function hasPendingStockSync() {
+  return pendingStockSyncIds.size > 0;
+}
+
+function hasUnsavedStockChanges() {
+  return Array.from(document.querySelectorAll('.product-card')).some(card => {
+    const input = card.querySelector('.qty-input');
+    if (!input) {
+      return false;
+    }
+
+    return String(parseQuantity(input)) !== String(card.dataset.stock || '0');
+  });
 }
 
 function parseStockValue(productOrStock) {
@@ -161,7 +182,13 @@ function refreshLocalAlertsPreview() {
     return;
   }
 
-  renderAlerts(getLocalAlerts(), currentThreshold);
+  const alerts = getLocalAlerts();
+  const nextSignature = buildAlertsSignature(alerts);
+  if (nextSignature === lastAlertsSignature) {
+    return;
+  }
+
+  renderAlerts(alerts, currentThreshold);
 }
 
 function refreshLocalOrdersPreview() {
@@ -169,7 +196,13 @@ function refreshLocalOrdersPreview() {
     return;
   }
 
-  renderOrders(getLocalOrdersPreview(), currentReorderThreshold);
+  const orders = getLocalOrdersPreview();
+  const nextSignature = buildOrdersSignature(orders);
+  if (nextSignature === lastOrdersSignature) {
+    return;
+  }
+
+  renderOrders(orders, currentReorderThreshold);
 }
 
 function createQuantityHold(button, input, direction, onChange) {
@@ -700,6 +733,7 @@ function createProductCard(product) {
     status.classList.remove('error');
     status.textContent = 'Mise a jour...';
     syncInFlight = true;
+    pendingStockSyncIds.add(card.dataset.productId);
 
     try {
       const response = await fetch(`/api/products/${card.dataset.productId}/stock`, {
@@ -717,8 +751,9 @@ function createProductCard(product) {
       updatePreviewState(payload.stock);
 
       status.textContent = 'Stock mis a jour';
-      await refreshOrders(true);
-      await refreshAlerts(true);
+      void Promise.all([refreshOrders(true), refreshAlerts(true)]).catch(error => {
+        console.error('Error refreshing previews after stock update:', error);
+      });
     } catch (error) {
       const savedStock = Number.parseInt(card.dataset.stock, 10);
       const fallbackStock = Number.isNaN(savedStock) ? 0 : savedStock;
@@ -727,6 +762,7 @@ function createProductCard(product) {
       status.classList.add('error');
       status.textContent = error instanceof Error ? error.message : 'Erreur lors de la mise a jour.';
     } finally {
+      pendingStockSyncIds.delete(card.dataset.productId);
       syncInFlight = false;
       if (pendingSync) {
         save();
@@ -789,6 +825,10 @@ function renderProducts() {
 
 async function refreshAlerts(force = false) {
   try {
+    if (!force && (hasPendingStockSync() || hasUnsavedStockChanges() || isEditingQuantityInput())) {
+      return false;
+    }
+
     const supplier = supplierSelect.value;
     const query = supplier ? `?supplier=${encodeURIComponent(supplier)}` : '';
     const response = await fetch(`/api/alerts${query}`);
@@ -812,6 +852,10 @@ async function refreshAlerts(force = false) {
 
 async function refreshOrders(force = false) {
   try {
+    if (!force && (hasPendingStockSync() || hasUnsavedStockChanges() || isEditingQuantityInput())) {
+      return false;
+    }
+
     const supplier = supplierSelect.value;
     const query = supplier ? `?supplier=${encodeURIComponent(supplier)}` : '';
     const response = await fetch(`/api/orders${query}`);
@@ -868,7 +912,7 @@ async function refreshProductsForSelectedSupplier() {
 }
 
 async function runLiveSyncTick() {
-  if (liveSyncInFlight) {
+  if (liveSyncInFlight || hasPendingStockSync() || hasUnsavedStockChanges() || isEditingQuantityInput()) {
     return;
   }
 

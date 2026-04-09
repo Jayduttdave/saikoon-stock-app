@@ -112,14 +112,18 @@ def ensure_static_assets() -> None:
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     (IMAGES_DIR / "uploads").mkdir(parents=True, exist_ok=True)
 
-    preferred_logo = BASE_DIR / "Gestion Stock logo.png"
-    fallback_logo = BASE_DIR / "logo.png"
+    preferred_logo = BASE_DIR / "logo.png"
+    fallback_logo = BASE_DIR / "Gestion Stock logo.png"
     root_logo = preferred_logo if preferred_logo.exists() else fallback_logo
     static_logo = IMAGES_DIR / "logo.png"
-    if root_logo.exists() and (
-        not static_logo.exists() or root_logo.stat().st_mtime_ns > static_logo.stat().st_mtime_ns
-    ):
-        shutil.copy2(root_logo, static_logo)
+    if root_logo.exists():
+        should_sync_logo = (
+            not static_logo.exists()
+            or root_logo.stat().st_size != static_logo.stat().st_size
+            or root_logo.stat().st_mtime_ns != static_logo.stat().st_mtime_ns
+        )
+        if should_sync_logo:
+            shutil.copy2(root_logo, static_logo)
 
 
 def read_json(path: Path, default: Any) -> Any:

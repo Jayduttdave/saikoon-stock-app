@@ -119,20 +119,29 @@ body.sidebar-open .app-sidebar {
 }
 
 .sidebar-brand-panel {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 2px 4px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 4px 0 10px;
+  text-align: center;
 }
 
 .sidebar-logo {
-  width: 58px;
-  height: 58px;
+  width: min(150px, 86%);
+  max-height: 46px;
+  height: auto;
+  display: block;
   object-fit: contain;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.08);
-  padding: 6px;
-  flex-shrink: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.18));
+}
+
+.sidebar-brand-copy {
+  width: 100%;
+  display: grid;
+  gap: 3px;
 }
 
 .sidebar-brand,
@@ -142,11 +151,7 @@ body.sidebar-open .app-sidebar {
 }
 
 .sidebar-brand {
-  color: #fda4af;
-  font-size: 0.78rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.9px;
+  display: none;
 }
 
 .sidebar-title {
@@ -250,7 +255,7 @@ body.sidebar-open .app-sidebar {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -1488,6 +1493,18 @@ body.modal-open {
   body.sidebar-collapsed .sidebar-brand-panel,
   body.sidebar-collapsed .sidebar-nav-button {
     justify-content: center;
+  }
+
+  body.sidebar-collapsed .sidebar-brand-panel {
+    justify-items: center;
+  }
+
+  body.sidebar-collapsed .sidebar-logo {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 5px;
   }
 
   body.sidebar-collapsed .sidebar-nav-button {

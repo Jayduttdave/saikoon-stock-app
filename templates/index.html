@@ -3,12 +3,18 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#e84c3d">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Saikoon Stock">
+    <meta name="application-name" content="Saikoon Stock">
     <title>Gestion de stock</title>
+    <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename=logo_src) }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename=logo_src) }}">
+    <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/icon-192.png') }}">
+    <link rel="icon" type="image/png" sizes="512x512" href="{{ url_for('static', filename='images/icon-512.png') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
   </head>
   <body>
@@ -22,8 +28,8 @@
           <img src="{{ url_for('static', filename=logo_src) }}" alt="Logo Saikoon" class="sidebar-logo">
           <div class="sidebar-brand-copy">
             <p class="sidebar-brand">Saikoon Kitchen</p>
-            <p class="sidebar-title">Stock &amp; Order Hub</p>
-            <p class="sidebar-subtitle">Navigation moderne et responsive</p>
+            <p class="sidebar-title">Gestion du stock</p>
+            <p class="sidebar-subtitle">Stocks et commandes fournisseurs</p>
           </div>
         </div>
 
