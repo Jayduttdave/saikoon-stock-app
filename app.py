@@ -13,7 +13,7 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
-from flask import Flask, abort, jsonify, render_template, request, send_file
+from flask import Flask, abort, jsonify, render_template, request, send_file, send_from_directory
 from openpyxl import load_workbook
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
@@ -31,6 +31,9 @@ except ImportError:
 DATA_DIR = Path(os.environ.get("APP_DATA_DIR", str(BASE_DIR / "data")))
 STATIC_DIR = BASE_DIR / "static"
 IMAGES_DIR = STATIC_DIR / "images"
+STATIC_UPLOADS_DIR = IMAGES_DIR / "uploads"
+UPLOADS_DIR = DATA_DIR / "uploads"
+UPLOAD_MEDIA_PREFIX = "media/uploads/"
 EXCEL_PATH = DATA_DIR / "products.xlsx"
 STOCK_PATH = DATA_DIR / "stock.json"
 HISTORY_PATH = DATA_DIR / "history.json"
@@ -83,11 +86,21 @@ def slugify(value: str) -> str:
 
 def ensure_data_files() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Seed catalog Excel into persistent data dir on first boot (Render disk).
     seed_excel = BASE_DIR / "data" / "products.xlsx"
     if not EXCEL_PATH.exists() and seed_excel.exists():
         shutil.copy2(seed_excel, EXCEL_PATH)
+
+    seed_uploads_dir = BASE_DIR / "data" / "uploads"
+    if seed_uploads_dir.exists():
+        for seed_file in seed_uploads_dir.iterdir():
+            if not seed_file.is_file():
+                continue
+            target_file = UPLOADS_DIR / seed_file.name
+            if not target_file.exists():
+                shutil.copy2(seed_file, target_file)
 
     if not STOCK_PATH.exists():
         STOCK_PATH.write_text("{}\n", encoding="utf-8")
@@ -110,7 +123,7 @@ def ensure_data_files() -> None:
 
 def ensure_static_assets() -> None:
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    (IMAGES_DIR / "uploads").mkdir(parents=True, exist_ok=True)
+    STATIC_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
     preferred_logo = BASE_DIR / "logo.png"
     fallback_logo = BASE_DIR / "Gestion Stock logo.png"
@@ -162,21 +175,39 @@ def _read_alerts() -> dict[str, int]:
 
 
 def resolve_image(image_value: Any) -> str:
-    raw_value = str(image_value or "").strip().replace("\\", "/")
+    raw_value = str(image_value or "").strip().replace("\\", "/").lstrip("/")
     if not raw_value:
         return PLACEHOLDER_IMAGE
+
+    if raw_value.startswith(("http://", "https://")):
+        return raw_value
+
+    file_name = Path(raw_value).name
+    upload_prefixes = (UPLOAD_MEDIA_PREFIX, "images/uploads/", "uploads/")
+    if raw_value.startswith(upload_prefixes) and file_name and (UPLOADS_DIR / file_name).exists():
+        return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
 
     candidates = [raw_value]
     if raw_value.startswith("static/"):
         candidates.append(raw_value.removeprefix("static/"))
-    if not raw_value.startswith("images/"):
-        filename = Path(raw_value).name
-        candidates.extend([f"images/{filename}", filename])
+    if file_name:
+        candidates.extend([f"images/{file_name}", file_name, f"{UPLOAD_MEDIA_PREFIX}{file_name}"])
 
     for candidate in candidates:
         relative_path = candidate.removeprefix("/")
+        if relative_path.startswith(UPLOAD_MEDIA_PREFIX):
+            upload_file = UPLOADS_DIR / Path(relative_path).name
+            if upload_file.exists():
+                return f"{UPLOAD_MEDIA_PREFIX}{upload_file.name}"
+            continue
+
         if (STATIC_DIR / relative_path).exists():
             return relative_path
+
+    if file_name:
+        upload_file = UPLOADS_DIR / file_name
+        if upload_file.exists():
+            return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
 
     return PLACEHOLDER_IMAGE
 
@@ -187,6 +218,30 @@ def get_static_image_path(relative_path: str) -> Path:
     if static_root not in candidate.parents and candidate != static_root:
         return STATIC_DIR / PLACEHOLDER_IMAGE
     return candidate
+
+
+def get_image_file_path(image_reference: str) -> Path:
+    resolved_reference = resolve_image(image_reference)
+    if resolved_reference.startswith(UPLOAD_MEDIA_PREFIX):
+        file_name = Path(resolved_reference).name
+        candidate = (UPLOADS_DIR / file_name).resolve()
+        uploads_root = UPLOADS_DIR.resolve()
+        if uploads_root in candidate.parents and candidate.exists():
+            return candidate
+        return get_static_image_path(PLACEHOLDER_IMAGE)
+    return get_static_image_path(resolved_reference)
+
+
+def delete_uploaded_image_file(image_reference: str) -> None:
+    file_name = Path(str(image_reference or "").strip().replace("\\", "/")).name
+    if not file_name:
+        return
+
+    for directory in (UPLOADS_DIR, STATIC_UPLOADS_DIR):
+        root = directory.resolve()
+        candidate = (directory / file_name).resolve()
+        if root in candidate.parents and candidate.exists():
+            candidate.unlink(missing_ok=True)
 
 
 def identify_column(columns: dict[str, str], aliases: set[str]) -> str | None:
@@ -209,7 +264,7 @@ def load_custom_products() -> list[dict[str, Any]]:
                 "name": str(row["name"]),
                 "supplier": str(row["supplier"]),
                 "category": str(row.get("category") or ""),
-                "image": str(row.get("image") or PLACEHOLDER_IMAGE),
+                "image": resolve_image(row.get("image") or PLACEHOLDER_IMAGE),
                 "source": "custom",
             }
         return list(deduped.values())
@@ -228,7 +283,7 @@ def load_custom_products() -> list[dict[str, Any]]:
             "name": str(product["name"]),
             "supplier": str(product["supplier"]),
             "category": str(product.get("category", "")),
-            "image": str(product.get("image", PLACEHOLDER_IMAGE)),
+            "image": resolve_image(product.get("image", PLACEHOLDER_IMAGE)),
             "source": "custom",
         }
 
@@ -531,9 +586,16 @@ def save_uploaded_image(uploaded_file: Any, supplier: str, product_name: str) ->
         raise ValueError("Format image non supporte.")
 
     safe_name = f"{slugify(supplier)}-{slugify(product_name)}-{int(local_now().timestamp())}{extension}"
-    target_path = IMAGES_DIR / "uploads" / safe_name
+    target_path = UPLOADS_DIR / safe_name
     uploaded_file.save(str(target_path))
-    return f"images/uploads/{safe_name}"
+
+    legacy_target = STATIC_UPLOADS_DIR / safe_name
+    try:
+        shutil.copy2(target_path, legacy_target)
+    except OSError:
+        pass
+
+    return f"{UPLOAD_MEDIA_PREFIX}{safe_name}"
 
 
 def clear_dismissal_if_stock_changed(product_id: str, new_stock: int) -> None:
@@ -582,10 +644,8 @@ def remove_custom_product_if_needed(product_id: str) -> None:
 
     if len(remaining_products) != len(custom_products):
         save_custom_products(remaining_products)
-        if removed_image.startswith("images/uploads/"):
-            image_path = get_static_image_path(removed_image)
-            if image_path.exists():
-                image_path.unlink(missing_ok=True)
+        if removed_image and removed_image != PLACEHOLDER_IMAGE:
+            delete_uploaded_image_file(removed_image)
 
 
 def update_custom_product_image(product_id: str, new_image_path: str) -> bool:
@@ -605,18 +665,16 @@ def update_custom_product_image(product_id: str, new_image_path: str) -> bool:
         return False
 
     save_custom_products(custom_products)
-    if previous_image.startswith("images/uploads/") and previous_image != new_image_path:
-        previous_path = get_static_image_path(previous_image)
-        if previous_path.exists():
-            previous_path.unlink(missing_ok=True)
+    if previous_image and previous_image != new_image_path and previous_image != PLACEHOLDER_IMAGE:
+        delete_uploaded_image_file(previous_image)
 
     return True
 
 
 def draw_product_line(pdf: canvas.Canvas, y: float, product: dict[str, Any]) -> float:
-    image_path = get_static_image_path(product["image"])
+    image_path = get_image_file_path(product["image"])
     if not image_path.exists():
-        image_path = get_static_image_path(PLACEHOLDER_IMAGE)
+        image_path = get_image_file_path(PLACEHOLDER_IMAGE)
 
     try:
         pdf.drawImage(ImageReader(str(image_path)), 28, y - 44, width=34, height=34, preserveAspectRatio=True)
@@ -671,9 +729,9 @@ def build_stock_pdf(alerts: list[dict[str, Any]]) -> BytesIO:
 
 
 def draw_order_line(pdf: canvas.Canvas, y: float, order: dict[str, Any]) -> float:
-    image_path = get_static_image_path(order["image"])
+    image_path = get_image_file_path(order["image"])
     if not image_path.exists():
-        image_path = get_static_image_path(PLACEHOLDER_IMAGE)
+        image_path = get_image_file_path(PLACEHOLDER_IMAGE)
 
     try:
         pdf.drawImage(ImageReader(str(image_path)), 28, y - 40, width=30, height=30, preserveAspectRatio=True)
@@ -1109,6 +1167,19 @@ def update_product_image(product_id: str):
         abort(404, description="Produit introuvable.")
 
     return jsonify({"id": product_id, "image": image_path, "updated": True})
+
+
+@app.get("/media/uploads/<path:filename>")
+def serve_uploaded_media(filename: str):
+    ensure_data_files()
+
+    safe_name = Path(filename).name
+    file_path = (UPLOADS_DIR / safe_name).resolve()
+    uploads_root = UPLOADS_DIR.resolve()
+    if uploads_root not in file_path.parents or not file_path.exists():
+        abort(404, description="Image introuvable.")
+
+    return send_from_directory(UPLOADS_DIR, safe_name, conditional=True)
 
 
 @app.get("/api/export/pdf")

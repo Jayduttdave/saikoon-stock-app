@@ -92,6 +92,107 @@ function normalizeText(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function buildImageUrl(imagePath) {
+  const rawPath = String(imagePath || '').trim();
+  if (!rawPath) {
+    return fallbackImage;
+  }
+
+  if (/^https?:\/\//i.test(rawPath)) {
+    return rawPath;
+  }
+
+  const normalizedPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  if (normalizedPath.startsWith('/static/') || normalizedPath.startsWith('/media/')) {
+    return normalizedPath;
+  }
+
+  if (normalizedPath.startsWith('/images/')) {
+    return `/static${normalizedPath}`;
+  }
+
+  return `/static/${rawPath.replace(/^\/+/, '')}`;
+}
+
+function isStandaloneApp() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function getFilenameFromResponse(response, fallbackName) {
+  const disposition = response.headers.get('content-disposition') || '';
+  const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encodedMatch?.[1]) {
+    return decodeURIComponent(encodedMatch[1]);
+  }
+
+  const simpleMatch = disposition.match(/filename="?([^";]+)"?/i);
+  if (simpleMatch?.[1]) {
+    return simpleMatch[1];
+  }
+
+  return fallbackName;
+}
+
+function downloadBlob(blob, fileName) {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 15000);
+}
+
+async function handlePdfAction(event, button, fallbackFileName) {
+  event.preventDefault();
+  if (!button?.href) {
+    return;
+  }
+
+  const originalLabel = button.textContent;
+  button.setAttribute('aria-busy', 'true');
+  button.style.pointerEvents = 'none';
+  button.textContent = 'Preparation...';
+
+  try {
+    const response = await fetch(button.href, {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+
+    if (!response.ok) {
+      throw new Error('Impossible de preparer le PDF.');
+    }
+
+    const pdfBlob = await response.blob();
+    const fileName = getFilenameFromResponse(response, fallbackFileName);
+    const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+    if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+      await navigator.share({ files: [pdfFile], title: fileName });
+      return;
+    }
+
+    if (navigator.share && isStandaloneApp()) {
+      await navigator.share({ title: fileName, url: button.href });
+      return;
+    }
+
+    downloadBlob(pdfBlob, fileName);
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === 'AbortError')) {
+      console.error('PDF export failed:', error);
+      window.open(button.href, '_blank', 'noopener');
+    }
+  } finally {
+    button.removeAttribute('aria-busy');
+    button.style.pointerEvents = '';
+    button.textContent = originalLabel;
+  }
+}
+
 function isEditingQuantityInput() {
   const activeElement = document.activeElement;
   return Boolean(activeElement && activeElement.classList && activeElement.classList.contains('qty-input'));
@@ -405,7 +506,7 @@ function createAlertCard(product) {
 
   card.className = 'alert-card';
   card.innerHTML = `
-    <img src="/static/${product.image}" alt="${product.name}" class="alert-thumb" loading="lazy">
+    <img src="${buildImageUrl(product.image)}" alt="${product.name}" class="alert-thumb" loading="lazy">
     <div class="alert-main">
       <div class="alert-meta">
         <h3>${product.name}</h3>
@@ -533,7 +634,7 @@ function createOrderCard(order) {
 
   card.className = 'order-card';
   card.innerHTML = `
-    <img src="/static/${order.image}" alt="${order.name}" class="order-thumb" loading="lazy">
+    <img src="${buildImageUrl(order.image)}" alt="${order.name}" class="order-thumb" loading="lazy">
     <div class="order-body">
       <div class="order-head">
         <h3>${order.name}</h3>
@@ -636,7 +737,7 @@ function createProductCard(product) {
   card.dataset.stock = String(product.stock);
 
   card.innerHTML = `
-    <img src="/static/${product.image}" alt="${product.name}" class="product-image" loading="lazy">
+    <img src="${buildImageUrl(product.image)}" alt="${product.name}" class="product-image" loading="lazy">
     <div class="product-body">
       <div class="product-header">
         <h3>${product.name}</h3>
@@ -1025,6 +1126,18 @@ async function loadProductsBySupplier() {
 
 supplierSelect.addEventListener('change', loadProductsBySupplier);
 searchInput.addEventListener('input', renderProducts);
+
+if (pdfButton) {
+  pdfButton.addEventListener('click', event => {
+    void handlePdfAction(event, pdfButton, 'stock_report.pdf');
+  });
+}
+
+if (orderPdfButton) {
+  orderPdfButton.addEventListener('click', event => {
+    void handlePdfAction(event, orderPdfButton, 'order_report.pdf');
+  });
+}
 
 if (clearAlertsButton) {
   clearAlertsButton.addEventListener('click', async () => {
