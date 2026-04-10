@@ -921,17 +921,19 @@ select:disabled {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
-.secondary-button.accent-button {
+.secondary-button.accent-button,
+.secondary-button.success-button {
   border: 0;
   color: #fff;
-  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-deep) 100%);
-  box-shadow: 0 2px 8px rgba(232, 76, 61, 0.24);
+  background: linear-gradient(135deg, #16a34a 0%, #059669 100%);
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.24);
 }
 
-.secondary-button.accent-button:hover {
+.secondary-button.accent-button:hover,
+.secondary-button.success-button:hover {
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 6px 16px rgba(232, 76, 61, 0.3);
+  box-shadow: 0 6px 16px rgba(5, 150, 105, 0.32);
 }
 
 .secondary-button:hover {

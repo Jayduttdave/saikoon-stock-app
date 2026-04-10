@@ -119,7 +119,8 @@
                 <div class="control-group action-group">
                   <label>Actions</label>
                   <div class="action-row">
-                    <button type="button" id="open-add-product" class="secondary-button accent-button">Ajouter produit</button>
+                    <button type="button" id="open-add-product" class="secondary-button success-button">Ajouter produit</button>
+                    <button type="button" id="open-delete-product" class="danger-button">Supprimer produit</button>
                     <a id="download-pdf" class="pdf-button" href="/api/export/pdf" target="_blank" rel="noopener">Telecharger PDF</a>
                   </div>
                 </div>
@@ -207,6 +208,41 @@
           <div class="order-form-actions">
             <button type="button" id="product-cancel-btn" class="secondary-button">Annuler</button>
             <button type="submit" id="product-save-btn" class="pdf-button">Ajouter</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="delete-product-modal" class="modal-backdrop" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-product-modal-title">
+        <div class="section-title-row modal-title-row">
+          <h2 id="delete-product-modal-title">Supprimer un produit</h2>
+          <button type="button" id="delete-product-close-btn" class="secondary-button small">Fermer</button>
+        </div>
+        <form id="delete-product-form" class="order-form">
+          <div class="control-group">
+            <label for="delete-product-supplier">Fournisseur</label>
+            <select id="delete-product-supplier" name="supplier" required>
+              <option value="">Selectionner un fournisseur</option>
+              {% for supplier in suppliers %}
+              <option value="{{ supplier }}">{{ supplier }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label for="delete-product-select">Produit a supprimer</label>
+            <select id="delete-product-select" name="product_id" disabled required>
+              <option value="">Selectionner d'abord un fournisseur</option>
+            </select>
+            <p class="control-help">Le produit sera retire de la liste, du stock, des commandes et enregistre dans la table des produits supprimes.</p>
+          </div>
+
+          <p id="delete-product-status" class="form-status" aria-live="polite"></p>
+
+          <div class="order-form-actions">
+            <button type="button" id="delete-product-cancel-btn" class="secondary-button">Annuler</button>
+            <button type="submit" id="delete-product-confirm-btn" class="danger-button">Supprimer</button>
           </div>
         </form>
       </div>

@@ -14,6 +14,7 @@ const bootstrappedOrders = document.querySelector('#bootstrap-orders');
 const pdfButton = document.querySelector('#download-pdf');
 const orderPdfButton = document.querySelector('#download-orders-pdf');
 const addProductButton = document.querySelector('#open-add-product');
+const deleteProductButton = document.querySelector('#open-delete-product');
 const clearAlertsButton = document.querySelector('#clear-alerts-btn');
 const clearOrdersButton = document.querySelector('#clear-orders-btn');
 const scrollTopButton = document.querySelector('#scroll-top');
@@ -27,6 +28,14 @@ const productFormStatus = document.querySelector('#product-form-status');
 const productSaveButton = document.querySelector('#product-save-btn');
 const productCancelButton = document.querySelector('#product-cancel-btn');
 const productCloseButton = document.querySelector('#product-close-btn');
+const deleteProductModal = document.querySelector('#delete-product-modal');
+const deleteProductForm = document.querySelector('#delete-product-form');
+const deleteProductSupplierInput = document.querySelector('#delete-product-supplier');
+const deleteProductSelect = document.querySelector('#delete-product-select');
+const deleteProductStatus = document.querySelector('#delete-product-status');
+const deleteProductConfirmButton = document.querySelector('#delete-product-confirm-btn');
+const deleteProductCancelButton = document.querySelector('#delete-product-cancel-btn');
+const deleteProductCloseButton = document.querySelector('#delete-product-close-btn');
 const orderModal = document.querySelector('#order-modal');
 const orderForm = document.querySelector('#order-form');
 const orderModalTitle = document.querySelector('#order-modal-title');
@@ -57,6 +66,7 @@ let lastOrdersSignature = '';
 let liveSyncTimer = null;
 let liveSyncInFlight = false;
 let activeOrderProduct = null;
+let deleteModalProducts = [];
 const pendingStockSyncIds = new Set();
 const AUTO_SAVE_DELAY_MS = 450;
 const LIVE_SYNC_INTERVAL_MS = 2500;
@@ -376,13 +386,122 @@ function closeProductModal() {
 
   productForm.reset();
   productModal.hidden = true;
-  if (!orderModal || orderModal.hidden) {
+  if ((!orderModal || orderModal.hidden) && (!deleteProductModal || deleteProductModal.hidden)) {
     document.body.classList.remove('modal-open');
   }
 
   if (productFormStatus) {
     productFormStatus.textContent = '';
     productFormStatus.classList.remove('error');
+  }
+}
+
+async function populateDeleteProductOptions(preferredProductId = '') {
+  if (!deleteProductSupplierInput || !deleteProductSelect) {
+    return;
+  }
+
+  const supplier = deleteProductSupplierInput.value.trim();
+  deleteModalProducts = [];
+  deleteProductSelect.innerHTML = '';
+  deleteProductSelect.disabled = true;
+
+  if (deleteProductStatus) {
+    deleteProductStatus.textContent = '';
+    deleteProductStatus.classList.remove('error');
+  }
+
+  if (!supplier) {
+    deleteProductSelect.innerHTML = '<option value="">Selectionner d\'abord un fournisseur</option>';
+    return;
+  }
+
+  deleteProductSelect.innerHTML = '<option value="">Chargement des produits...</option>';
+
+  try {
+    const response = await fetch(`/api/products?supplier=${encodeURIComponent(supplier)}`);
+    const payload = await response.json().catch(() => ({ products: [] }));
+    if (!response.ok) {
+      throw new Error(payload.description || 'Impossible de charger les produits.');
+    }
+
+    deleteModalProducts = Array.isArray(payload.products) ? payload.products : [];
+    deleteProductSelect.innerHTML = '';
+
+    if (deleteModalProducts.length === 0) {
+      deleteProductSelect.innerHTML = '<option value="">Aucun produit disponible</option>';
+      return;
+    }
+
+    const placeholderOption = document.createElement('option');
+    placeholderOption.value = '';
+    placeholderOption.textContent = 'Selectionner un produit';
+    deleteProductSelect.appendChild(placeholderOption);
+
+    deleteModalProducts.forEach(product => {
+      const option = document.createElement('option');
+      option.value = product.id;
+      option.textContent = `${product.name} (stock ${product.stock})`;
+      deleteProductSelect.appendChild(option);
+    });
+
+    deleteProductSelect.disabled = false;
+    if (preferredProductId && deleteModalProducts.some(product => product.id === preferredProductId)) {
+      deleteProductSelect.value = preferredProductId;
+    }
+  } catch (error) {
+    deleteProductSelect.innerHTML = '<option value="">Erreur de chargement</option>';
+    if (deleteProductStatus) {
+      deleteProductStatus.textContent = error instanceof Error ? error.message : 'Impossible de charger les produits.';
+      deleteProductStatus.classList.add('error');
+    }
+  }
+}
+
+function openDeleteProductModal() {
+  if (!deleteProductModal || !deleteProductForm || !deleteProductSupplierInput || !deleteProductSelect) {
+    return;
+  }
+
+  deleteProductForm.reset();
+  deleteModalProducts = [];
+  deleteProductSupplierInput.value = supplierSelect.value || '';
+  deleteProductSelect.innerHTML = '<option value="">Selectionner d\'abord un fournisseur</option>';
+  deleteProductSelect.disabled = true;
+
+  if (deleteProductStatus) {
+    deleteProductStatus.textContent = '';
+    deleteProductStatus.classList.remove('error');
+  }
+
+  deleteProductModal.hidden = false;
+  document.body.classList.add('modal-open');
+
+  if (deleteProductSupplierInput.value) {
+    void populateDeleteProductOptions();
+  }
+
+  window.requestAnimationFrame(() => deleteProductSupplierInput.focus());
+}
+
+function closeDeleteProductModal() {
+  if (!deleteProductModal || !deleteProductForm || !deleteProductSelect) {
+    return;
+  }
+
+  deleteProductForm.reset();
+  deleteModalProducts = [];
+  deleteProductSelect.innerHTML = '<option value="">Selectionner d\'abord un fournisseur</option>';
+  deleteProductSelect.disabled = true;
+  deleteProductModal.hidden = true;
+
+  if ((!productModal || productModal.hidden) && (!orderModal || orderModal.hidden)) {
+    document.body.classList.remove('modal-open');
+  }
+
+  if (deleteProductStatus) {
+    deleteProductStatus.textContent = '';
+    deleteProductStatus.classList.remove('error');
   }
 }
 
@@ -426,7 +545,7 @@ function closeOrderModal() {
 
   orderForm.reset();
   orderModal.hidden = true;
-  if (!productModal || productModal.hidden) {
+  if ((!productModal || productModal.hidden) && (!deleteProductModal || deleteProductModal.hidden)) {
     document.body.classList.remove('modal-open');
   }
   activeOrderProduct = null;
@@ -1173,6 +1292,10 @@ if (addProductButton) {
   addProductButton.addEventListener('click', openProductModal);
 }
 
+if (deleteProductButton) {
+  deleteProductButton.addEventListener('click', openDeleteProductModal);
+}
+
 if (productForm) {
   productForm.addEventListener('submit', async event => {
     event.preventDefault();
@@ -1230,6 +1353,61 @@ if (productForm) {
       productFormStatus.classList.add('error');
     } finally {
       productSaveButton.disabled = false;
+    }
+  });
+}
+
+if (deleteProductSupplierInput) {
+  deleteProductSupplierInput.addEventListener('change', () => {
+    void populateDeleteProductOptions();
+  });
+}
+
+if (deleteProductForm) {
+  deleteProductForm.addEventListener('submit', async event => {
+    event.preventDefault();
+
+    const supplier = deleteProductSupplierInput?.value.trim() || '';
+    const productId = deleteProductSelect?.value.trim() || '';
+
+    if (!supplier) {
+      deleteProductStatus.textContent = 'Selectionnez un fournisseur.';
+      deleteProductStatus.classList.add('error');
+      return;
+    }
+
+    if (!productId) {
+      deleteProductStatus.textContent = 'Selectionnez le produit a supprimer.';
+      deleteProductStatus.classList.add('error');
+      return;
+    }
+
+    const selectedProduct = deleteModalProducts.find(product => product.id === productId);
+    const productName = selectedProduct?.name || 'ce produit';
+    const shouldDelete = window.confirm(`Supprimer definitivement ${productName} de ${supplier} ? Cette action retire aussi le stock et les commandes.`);
+    if (!shouldDelete) {
+      return;
+    }
+
+    deleteProductConfirmButton.disabled = true;
+    deleteProductStatus.textContent = 'Suppression du produit...';
+    deleteProductStatus.classList.remove('error');
+
+    try {
+      const response = await fetch(`/api/products/${encodeURIComponent(productId)}`, { method: 'DELETE' });
+      const payload = await response.json().catch(() => ({ description: 'Impossible de supprimer le produit.' }));
+      if (!response.ok) {
+        throw new Error(payload.description || 'Impossible de supprimer le produit.');
+      }
+
+      await refreshSupplierOptions();
+      closeDeleteProductModal();
+      await loadProductsBySupplier();
+    } catch (error) {
+      deleteProductStatus.textContent = error instanceof Error ? error.message : 'Impossible de supprimer le produit.';
+      deleteProductStatus.classList.add('error');
+    } finally {
+      deleteProductConfirmButton.disabled = false;
     }
   });
 }
@@ -1295,6 +1473,22 @@ if (productModal) {
   productModal.addEventListener('click', event => {
     if (event.target === productModal) {
       closeProductModal();
+    }
+  });
+}
+
+if (deleteProductCancelButton) {
+  deleteProductCancelButton.addEventListener('click', closeDeleteProductModal);
+}
+
+if (deleteProductCloseButton) {
+  deleteProductCloseButton.addEventListener('click', closeDeleteProductModal);
+}
+
+if (deleteProductModal) {
+  deleteProductModal.addEventListener('click', event => {
+    if (event.target === deleteProductModal) {
+      closeDeleteProductModal();
     }
   });
 }
@@ -1405,6 +1599,11 @@ document.addEventListener('keydown', event => {
 
   if (productModal && !productModal.hidden) {
     closeProductModal();
+    return;
+  }
+
+  if (deleteProductModal && !deleteProductModal.hidden) {
+    closeDeleteProductModal();
     return;
   }
 

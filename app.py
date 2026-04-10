@@ -1196,20 +1196,19 @@ def delete_product(product_id: str):
     if product is None:
         abort(404, description="Produit introuvable.")
 
-    if product.get("source") != "custom":
-        deleted_ids = load_deleted_products()
-        deleted_ids.add(product_id)
-        save_deleted_products(deleted_ids)
-    else:
-        deleted_ids = load_deleted_products()
-        if product_id in deleted_ids:
-            deleted_ids.discard(product_id)
-            save_deleted_products(deleted_ids)
+    deleted_ids = load_deleted_products()
+    deleted_ids.add(product_id)
+    save_deleted_products(deleted_ids)
 
     cleanup_deleted_product(product_id)
     remove_custom_product_if_needed(product_id)
 
-    return jsonify({"id": product_id, "deleted": True})
+    return jsonify({
+        "id": product_id,
+        "name": product.get("name", ""),
+        "supplier": product.get("supplier", ""),
+        "deleted": True,
+    })
 
 
 @app.post("/api/products/<product_id>/image")
