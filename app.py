@@ -399,6 +399,33 @@ def find_uploaded_image_reference(supplier: str, product_name: str) -> str:
     return f"{UPLOAD_MEDIA_PREFIX}{latest_match.name}"
 
 
+def find_matching_catalog_image_reference(supplier: str, product_name: str) -> str:
+    if not EXCEL_PATH.exists():
+        return ""
+
+    supplier_key = normalize_header(supplier)
+    product_key = normalize_header(product_name)
+    if not supplier_key or not product_key:
+        return ""
+
+    try:
+        catalog_items = load_catalog_products(EXCEL_PATH.stat().st_mtime_ns)
+    except Exception:
+        return ""
+
+    for item in catalog_items:
+        item_supplier = normalize_header(item.get("supplier", ""))
+        item_name = normalize_header(item.get("name", ""))
+        if item_supplier != supplier_key or item_name != product_key:
+            continue
+
+        resolved_image = resolve_image(item.get("image", PLACEHOLDER_IMAGE))
+        if resolved_image != PLACEHOLDER_IMAGE:
+            return resolved_image
+
+    return ""
+
+
 def load_custom_products() -> list[dict[str, Any]]:
     deduped: dict[str, dict[str, Any]] = {}
 
@@ -416,6 +443,8 @@ def load_custom_products() -> list[dict[str, Any]]:
             stored_image = str(row.get("image") or PLACEHOLDER_IMAGE)
             if stored_image == PLACEHOLDER_IMAGE:
                 recovered_image = find_uploaded_image_reference(supplier_name, product_name)
+                if not recovered_image:
+                    recovered_image = find_matching_catalog_image_reference(supplier_name, product_name)
                 if recovered_image:
                     stored_image = recovered_image
                     repaired_images[product_id] = recovered_image
@@ -454,6 +483,8 @@ def load_custom_products() -> list[dict[str, Any]]:
         stored_image = str(product.get("image", PLACEHOLDER_IMAGE) or PLACEHOLDER_IMAGE)
         if stored_image == PLACEHOLDER_IMAGE:
             recovered_image = find_uploaded_image_reference(str(product["supplier"]), str(product["name"]))
+            if not recovered_image:
+                recovered_image = find_matching_catalog_image_reference(str(product["supplier"]), str(product["name"]))
             if recovered_image:
                 stored_image = recovered_image
                 product["image"] = recovered_image
@@ -1263,7 +1294,7 @@ def create_product():
     if not supplier:
         abort(400, description="Fournisseur obligatoire.")
 
-    image_path = PLACEHOLDER_IMAGE
+    image_path = find_matching_catalog_image_reference(supplier, name) or PLACEHOLDER_IMAGE
     if uploaded_file is not None and uploaded_file.filename:
         try:
             image_path = save_uploaded_image(uploaded_file, supplier, name)
