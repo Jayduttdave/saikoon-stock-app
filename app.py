@@ -251,41 +251,110 @@ def identify_column(columns: dict[str, str], aliases: set[str]) -> str | None:
     return None
 
 
+def find_uploaded_image_reference(supplier: str, product_name: str) -> str:
+    supplier_slug = slugify(supplier)
+    product_slug = slugify(product_name)
+    valid_extensions = {".png", ".jpg", ".jpeg", ".webp"}
+    prefixes = tuple(
+        prefix for prefix in [
+            f"{supplier_slug}-{product_slug}-",
+            f"{product_slug}-",
+        ]
+        if prefix
+    )
+
+    if not prefixes:
+        return ""
+
+    matches: list[Path] = []
+    for directory in (UPLOADS_DIR, STATIC_UPLOADS_DIR):
+        if not directory.exists():
+            continue
+
+        for candidate in directory.iterdir():
+            if not candidate.is_file() or candidate.suffix.lower() not in valid_extensions:
+                continue
+            if candidate.name.lower().startswith(prefixes):
+                matches.append(candidate)
+
+    if not matches:
+        return ""
+
+    latest_match = max(matches, key=lambda path: path.stat().st_mtime_ns)
+    return f"{UPLOAD_MEDIA_PREFIX}{latest_match.name}"
+
+
 def load_custom_products() -> list[dict[str, Any]]:
     deduped: dict[str, dict[str, Any]] = {}
 
     if USE_DB:
         rows = _get_sb().table("custom_products").select("id,name,supplier,category,image").execute().data or []
+        repaired_images: dict[str, str] = {}
+
         for row in rows:
             if not row.get("id") or not row.get("name") or not row.get("supplier"):
                 continue
-            deduped[str(row["id"])] = {
-                "id": str(row["id"]),
-                "name": str(row["name"]),
-                "supplier": str(row["supplier"]),
+
+            product_id = str(row["id"])
+            product_name = str(row["name"])
+            supplier_name = str(row["supplier"])
+            stored_image = str(row.get("image") or PLACEHOLDER_IMAGE)
+            if stored_image == PLACEHOLDER_IMAGE:
+                recovered_image = find_uploaded_image_reference(supplier_name, product_name)
+                if recovered_image:
+                    stored_image = recovered_image
+                    repaired_images[product_id] = recovered_image
+
+            deduped[product_id] = {
+                "id": product_id,
+                "name": product_name,
+                "supplier": supplier_name,
                 "category": str(row.get("category") or ""),
-                "image": resolve_image(row.get("image") or PLACEHOLDER_IMAGE),
+                "image": stored_image,
                 "source": "custom",
             }
+
+        if repaired_images:
+            sb = _get_sb()
+            for product_id, image_reference in repaired_images.items():
+                try:
+                    sb.table("custom_products").update({"image": image_reference}).eq("id", product_id).execute()
+                except Exception:
+                    pass
+
         return list(deduped.values())
 
     products = read_json(CUSTOM_PRODUCTS_PATH, [])
     if not isinstance(products, list):
         return []
 
+    repaired = False
+
     for product in products:
         if not isinstance(product, dict):
             continue
         if not product.get("id") or not product.get("name") or not product.get("supplier"):
             continue
+
+        stored_image = str(product.get("image", PLACEHOLDER_IMAGE) or PLACEHOLDER_IMAGE)
+        if stored_image == PLACEHOLDER_IMAGE:
+            recovered_image = find_uploaded_image_reference(str(product["supplier"]), str(product["name"]))
+            if recovered_image:
+                stored_image = recovered_image
+                product["image"] = recovered_image
+                repaired = True
+
         deduped[str(product["id"])] = {
             "id": str(product["id"]),
             "name": str(product["name"]),
             "supplier": str(product["supplier"]),
             "category": str(product.get("category", "")),
-            "image": resolve_image(product.get("image", PLACEHOLDER_IMAGE)),
+            "image": stored_image,
             "source": "custom",
         }
+
+    if repaired:
+        write_json(CUSTOM_PRODUCTS_PATH, products)
 
     return list(deduped.values())
 
@@ -503,6 +572,7 @@ def load_products() -> list[dict[str, Any]]:
         products.append(
             {
                 **catalog_item,
+                "image": resolve_image(catalog_item.get("image", PLACEHOLDER_IMAGE)),
                 "stock": int(stock_map.get(catalog_item["id"], 0)),
             }
         )
