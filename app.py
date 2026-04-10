@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import re
 import shutil
@@ -10,6 +11,9 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
@@ -34,6 +38,7 @@ IMAGES_DIR = STATIC_DIR / "images"
 STATIC_UPLOADS_DIR = IMAGES_DIR / "uploads"
 UPLOADS_DIR = DATA_DIR / "uploads"
 UPLOAD_MEDIA_PREFIX = "media/uploads/"
+SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "product-images")
 EXCEL_PATH = DATA_DIR / "products.xlsx"
 STOCK_PATH = DATA_DIR / "stock.json"
 HISTORY_PATH = DATA_DIR / "history.json"
@@ -166,6 +171,107 @@ def _get_sb() -> Any:
     return _sb_client
 
 
+def _storage_api_url(path: str) -> str:
+    return f"{SUPABASE_URL.rstrip('/')}/storage/v1/{path.lstrip('/')}"
+
+
+def ensure_supabase_storage_bucket() -> None:
+    if not USE_DB or not SUPABASE_URL or not SUPABASE_KEY:
+        return
+
+    payload = json.dumps(
+        {
+            "id": SUPABASE_STORAGE_BUCKET,
+            "name": SUPABASE_STORAGE_BUCKET,
+            "public": True,
+        }
+    ).encode("utf-8")
+    request_obj = Request(_storage_api_url("bucket"), data=payload, method="POST")
+    request_obj.add_header("Authorization", f"Bearer {SUPABASE_KEY}")
+    request_obj.add_header("apikey", SUPABASE_KEY)
+    request_obj.add_header("Content-Type", "application/json")
+
+    try:
+        with urlopen(request_obj, timeout=20):
+            return
+    except HTTPError as exc:
+        if exc.code not in {400, 409}:
+            raise
+    except URLError:
+        return
+
+
+def upload_file_to_supabase_storage(file_name: str, file_bytes: bytes, content_type: str) -> None:
+    if not USE_DB or not SUPABASE_URL or not SUPABASE_KEY or not file_name:
+        return
+
+    ensure_supabase_storage_bucket()
+    bucket_name = quote(SUPABASE_STORAGE_BUCKET, safe="")
+    object_name = quote(file_name, safe="")
+    request_obj = Request(_storage_api_url(f"object/{bucket_name}/{object_name}"), data=file_bytes, method="POST")
+    request_obj.add_header("Authorization", f"Bearer {SUPABASE_KEY}")
+    request_obj.add_header("apikey", SUPABASE_KEY)
+    request_obj.add_header("Content-Type", content_type or "application/octet-stream")
+    request_obj.add_header("x-upsert", "true")
+
+    with urlopen(request_obj, timeout=20):
+        return
+
+
+def download_file_from_supabase_storage(file_name: str) -> bytes | None:
+    if not USE_DB or not SUPABASE_URL or not file_name:
+        return None
+
+    bucket_name = quote(SUPABASE_STORAGE_BUCKET, safe="")
+    object_name = quote(file_name, safe="")
+    request_obj = Request(_storage_api_url(f"object/public/{bucket_name}/{object_name}"), method="GET")
+
+    try:
+        with urlopen(request_obj, timeout=20) as response:
+            return response.read()
+    except (HTTPError, URLError):
+        return None
+
+
+def cache_uploaded_file(file_name: str) -> Path | None:
+    if not file_name:
+        return None
+
+    local_path = (UPLOADS_DIR / file_name).resolve()
+    uploads_root = UPLOADS_DIR.resolve()
+    if uploads_root in local_path.parents and local_path.exists():
+        return local_path
+
+    file_bytes = download_file_from_supabase_storage(file_name)
+    if not file_bytes:
+        return None
+
+    try:
+        UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        local_path.write_bytes(file_bytes)
+    except OSError:
+        return None
+
+    return local_path if local_path.exists() else None
+
+
+def delete_file_from_supabase_storage(file_name: str) -> None:
+    if not USE_DB or not SUPABASE_URL or not SUPABASE_KEY or not file_name:
+        return
+
+    bucket_name = quote(SUPABASE_STORAGE_BUCKET, safe="")
+    object_name = quote(file_name, safe="")
+    request_obj = Request(_storage_api_url(f"object/{bucket_name}/{object_name}"), method="DELETE")
+    request_obj.add_header("Authorization", f"Bearer {SUPABASE_KEY}")
+    request_obj.add_header("apikey", SUPABASE_KEY)
+
+    try:
+        with urlopen(request_obj, timeout=20):
+            return
+    except (HTTPError, URLError):
+        return
+
+
 def _read_alerts() -> dict[str, int]:
     """Read the dismissed-alerts map from DB or local file."""
     if USE_DB:
@@ -184,8 +290,9 @@ def resolve_image(image_value: Any) -> str:
 
     file_name = Path(raw_value).name
     upload_prefixes = (UPLOAD_MEDIA_PREFIX, "images/uploads/", "uploads/")
-    if raw_value.startswith(upload_prefixes) and file_name and (UPLOADS_DIR / file_name).exists():
-        return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
+    if raw_value.startswith(upload_prefixes) and file_name:
+        if (UPLOADS_DIR / file_name).exists() or cache_uploaded_file(file_name):
+            return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
 
     candidates = [raw_value]
     if raw_value.startswith("static/"):
@@ -196,9 +303,10 @@ def resolve_image(image_value: Any) -> str:
     for candidate in candidates:
         relative_path = candidate.removeprefix("/")
         if relative_path.startswith(UPLOAD_MEDIA_PREFIX):
-            upload_file = UPLOADS_DIR / Path(relative_path).name
-            if upload_file.exists():
-                return f"{UPLOAD_MEDIA_PREFIX}{upload_file.name}"
+            file_name = Path(relative_path).name
+            upload_file = UPLOADS_DIR / file_name
+            if upload_file.exists() or cache_uploaded_file(file_name):
+                return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
             continue
 
         if (STATIC_DIR / relative_path).exists():
@@ -206,7 +314,7 @@ def resolve_image(image_value: Any) -> str:
 
     if file_name:
         upload_file = UPLOADS_DIR / file_name
-        if upload_file.exists():
+        if upload_file.exists() or cache_uploaded_file(file_name):
             return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
 
     return PLACEHOLDER_IMAGE
@@ -228,6 +336,11 @@ def get_image_file_path(image_reference: str) -> Path:
         uploads_root = UPLOADS_DIR.resolve()
         if uploads_root in candidate.parents and candidate.exists():
             return candidate
+
+        cached_path = cache_uploaded_file(file_name)
+        if cached_path and cached_path.exists():
+            return cached_path
+
         return get_static_image_path(PLACEHOLDER_IMAGE)
     return get_static_image_path(resolved_reference)
 
@@ -242,6 +355,8 @@ def delete_uploaded_image_file(image_reference: str) -> None:
         candidate = (directory / file_name).resolve()
         if root in candidate.parents and candidate.exists():
             candidate.unlink(missing_ok=True)
+
+    delete_file_from_supabase_storage(file_name)
 
 
 def identify_column(columns: dict[str, str], aliases: set[str]) -> str | None:
@@ -656,14 +771,25 @@ def save_uploaded_image(uploaded_file: Any, supplier: str, product_name: str) ->
         raise ValueError("Format image non supporte.")
 
     safe_name = f"{slugify(supplier)}-{slugify(product_name)}-{int(local_now().timestamp())}{extension}"
+    file_bytes = uploaded_file.read()
+    if not file_bytes:
+        raise ValueError("Image vide ou illisible.")
+
     target_path = UPLOADS_DIR / safe_name
-    uploaded_file.save(str(target_path))
+    target_path.write_bytes(file_bytes)
 
     legacy_target = STATIC_UPLOADS_DIR / safe_name
     try:
         shutil.copy2(target_path, legacy_target)
     except OSError:
         pass
+
+    if USE_DB:
+        content_type = str(getattr(uploaded_file, "mimetype", "") or mimetypes.guess_type(safe_name)[0] or "application/octet-stream")
+        try:
+            upload_file_to_supabase_storage(safe_name, file_bytes, content_type)
+        except Exception:
+            pass
 
     return f"{UPLOAD_MEDIA_PREFIX}{safe_name}"
 
@@ -1245,10 +1371,16 @@ def serve_uploaded_media(filename: str):
     safe_name = Path(filename).name
     file_path = (UPLOADS_DIR / safe_name).resolve()
     uploads_root = UPLOADS_DIR.resolve()
-    if uploads_root not in file_path.parents or not file_path.exists():
+    if uploads_root not in file_path.parents:
         abort(404, description="Image introuvable.")
 
-    return send_from_directory(UPLOADS_DIR, safe_name, conditional=True)
+    if not file_path.exists():
+        cached_path = cache_uploaded_file(safe_name)
+        if cached_path is None or not cached_path.exists():
+            abort(404, description="Image introuvable.")
+
+    mime_type = mimetypes.guess_type(safe_name)[0]
+    return send_from_directory(UPLOADS_DIR, safe_name, conditional=True, mimetype=mime_type)
 
 
 @app.get("/api/export/pdf")
