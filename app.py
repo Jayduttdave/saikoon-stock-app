@@ -281,8 +281,17 @@ def _read_alerts() -> dict[str, int]:
 
 
 def resolve_image(image_value: Any) -> str:
-    raw_value = str(image_value or "").strip().replace("\\", "/").lstrip("/")
-    if not raw_value:
+    if image_value is None:
+        return PLACEHOLDER_IMAGE
+
+    try:
+        if pd.isna(image_value):
+            return PLACEHOLDER_IMAGE
+    except TypeError:
+        pass
+
+    raw_value = str(image_value).strip().replace("\\", "/").lstrip("/")
+    if not raw_value or raw_value.casefold() in {"nan", "none", "null"}:
         return PLACEHOLDER_IMAGE
 
     if raw_value.startswith(("http://", "https://")):
@@ -296,22 +305,13 @@ def resolve_image(image_value: Any) -> str:
     candidates = [raw_value]
     if raw_value.startswith("static/"):
         candidates.append(raw_value.removeprefix("static/"))
-    if file_name:
-        candidates.extend([f"images/{file_name}", file_name, f"{UPLOAD_MEDIA_PREFIX}{file_name}"])
+    if file_name and not raw_value.startswith(upload_prefixes):
+        candidates.extend([f"images/{file_name}", file_name])
 
     for candidate in candidates:
         relative_path = candidate.removeprefix("/")
-        if relative_path.startswith(UPLOAD_MEDIA_PREFIX):
-            file_name = Path(relative_path).name
-            if file_name:
-                return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
-            continue
-
         if (STATIC_DIR / relative_path).exists():
             return relative_path
-
-    if file_name and raw_value.startswith(upload_prefixes):
-        return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
 
     return PLACEHOLDER_IMAGE
 
