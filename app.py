@@ -291,8 +291,7 @@ def resolve_image(image_value: Any) -> str:
     file_name = Path(raw_value).name
     upload_prefixes = (UPLOAD_MEDIA_PREFIX, "images/uploads/", "uploads/")
     if raw_value.startswith(upload_prefixes) and file_name:
-        if (UPLOADS_DIR / file_name).exists() or cache_uploaded_file(file_name):
-            return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
+        return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
 
     candidates = [raw_value]
     if raw_value.startswith("static/"):
@@ -304,18 +303,15 @@ def resolve_image(image_value: Any) -> str:
         relative_path = candidate.removeprefix("/")
         if relative_path.startswith(UPLOAD_MEDIA_PREFIX):
             file_name = Path(relative_path).name
-            upload_file = UPLOADS_DIR / file_name
-            if upload_file.exists() or cache_uploaded_file(file_name):
+            if file_name:
                 return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
             continue
 
         if (STATIC_DIR / relative_path).exists():
             return relative_path
 
-    if file_name:
-        upload_file = UPLOADS_DIR / file_name
-        if upload_file.exists() or cache_uploaded_file(file_name):
-            return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
+    if file_name and raw_value.startswith(upload_prefixes):
+        return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
 
     return PLACEHOLDER_IMAGE
 
