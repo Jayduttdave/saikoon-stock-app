@@ -965,7 +965,7 @@ def draw_order_line(pdf: canvas.Canvas, y: float, order: dict[str, Any]) -> floa
     pdf.setFont("Helvetica-Bold", 10)
     pdf.drawString(66, y - 9, str(order["name"])[:84])
     pdf.setFont("Helvetica", 9)
-    pdf.drawString(66, y - 21, f"Stock: {order['current_stock']}   Type: {order['order_type']}   Qte: {order['order_quantity']}")
+    pdf.drawString(66, y - 21, f"Type: {order['order_type']}   Qte: {order['order_quantity']}")
     pdf.drawString(66, y - 33, f"Statut: {status_text}")
     return y - 44
 
