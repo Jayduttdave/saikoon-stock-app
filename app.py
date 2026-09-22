@@ -61,14 +61,30 @@ CATEGORY_KEYS = {"category", "categorie"}
 SUPPLIER_KEYS = {"supplier", "fournisseur"}
 
 app = Flask(__name__)
-# ── Supabase / persistent-DB layer (optional) ────────────────────────────────
-# Set SUPABASE_URL and SUPABASE_SERVICE_KEY env vars on Render to enable DB
-# storage.  Falls back to local JSON files when the vars are absent (local dev).
-SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY: str = os.environ.get("SUPABASE_SERVICE_KEY", "")
+# ── Supabase / persistent-DB layer ──────────────────────────────────────────
+# Set SUPABASE_URL and SUPABASE_SERVICE_KEY env vars to enable DB storage.
+# On Vercel and Render production, USE_DB is the authoritative architecture.
+_raw_sb_url: str = os.environ.get("SUPABASE_URL", "").strip()
+if _raw_sb_url:
+    from urllib.parse import urlparse
+    _parsed = urlparse(_raw_sb_url)
+    if _parsed.scheme and _parsed.netloc:
+        SUPABASE_URL: str = f"{_parsed.scheme}://{_parsed.netloc}"
+    else:
+        SUPABASE_URL = _raw_sb_url
+else:
+    SUPABASE_URL = ""
+
+SUPABASE_KEY: str = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
 USE_DB: bool = bool(_SUPABASE_LIB and SUPABASE_URL and SUPABASE_KEY)
+IS_VERCEL: bool = bool(os.environ.get("VERCEL"))
 _sb_client: Any = None
 
+
+def get_storage_cdn_base() -> str:
+    """Returns the public Supabase Storage CDN base URL."""
+    base_url = SUPABASE_URL.rstrip("/") if SUPABASE_URL else "https://vmmczgmatashmdbpolru.supabase.co"
+    return f"{base_url}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}"
 
 
 def local_now() -> datetime:
@@ -90,10 +106,15 @@ def slugify(value: str) -> str:
 
 
 def ensure_data_files() -> None:
+    # On serverless (Vercel) and database-backed Render, persistent state is in Supabase.
+    # Never attempt to write local files or create local data directories in DB mode.
+    if USE_DB:
+        return
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Seed catalog Excel into persistent data dir on first boot (Render disk).
+    # Seed catalog Excel into persistent data dir on first boot (local dev only).
     seed_excel = BASE_DIR / "data" / "products.xlsx"
     if not EXCEL_PATH.exists() and seed_excel.exists():
         shutil.copy2(seed_excel, EXCEL_PATH)
@@ -127,6 +148,9 @@ def ensure_data_files() -> None:
 
 
 def ensure_static_assets() -> None:
+    if USE_DB:
+        return
+
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     STATIC_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -207,15 +231,21 @@ def upload_file_to_supabase_storage(file_name: str, file_bytes: bytes, content_t
 
     ensure_supabase_storage_bucket()
     bucket_name = quote(SUPABASE_STORAGE_BUCKET, safe="")
-    object_name = quote(file_name, safe="")
+    remote_path = file_name.strip().replace("\\", "/").lstrip("/")
+    if not remote_path.startswith("uploads/"):
+        remote_path = f"uploads/{remote_path}"
+    object_name = quote(remote_path, safe="/")
     request_obj = Request(_storage_api_url(f"object/{bucket_name}/{object_name}"), data=file_bytes, method="POST")
     request_obj.add_header("Authorization", f"Bearer {SUPABASE_KEY}")
     request_obj.add_header("apikey", SUPABASE_KEY)
     request_obj.add_header("Content-Type", content_type or "application/octet-stream")
     request_obj.add_header("x-upsert", "true")
 
-    with urlopen(request_obj, timeout=20):
-        return
+    try:
+        with urlopen(request_obj, timeout=20):
+            return
+    except Exception as exc:
+        app.logger.error("Failed to upload image to Supabase Storage: %s", exc)
 
 
 def download_file_from_supabase_storage(file_name: str) -> bytes | None:
@@ -260,7 +290,10 @@ def delete_file_from_supabase_storage(file_name: str) -> None:
         return
 
     bucket_name = quote(SUPABASE_STORAGE_BUCKET, safe="")
-    object_name = quote(file_name, safe="")
+    remote_path = file_name.strip().replace("\\", "/").lstrip("/")
+    if not remote_path.startswith("uploads/"):
+        remote_path = f"uploads/{remote_path}"
+    object_name = quote(remote_path, safe="/")
     request_obj = Request(_storage_api_url(f"object/{bucket_name}/{object_name}"), method="DELETE")
     request_obj.add_header("Authorization", f"Bearer {SUPABASE_KEY}")
     request_obj.add_header("apikey", SUPABASE_KEY)
@@ -280,25 +313,77 @@ def _read_alerts() -> dict[str, int]:
     return read_json(ALERTS_PATH, {})
 
 
+@lru_cache(maxsize=256)
+def _fetch_image_bytes(url: str) -> bytes | None:
+    if not url or not url.startswith(("http://", "https://")):
+        return None
+    try:
+        req = Request(url, headers={"User-Agent": "SaikoonStockApp/1.0"})
+        with urlopen(req, timeout=8) as resp:
+            return resp.read()
+    except Exception:
+        return None
+
+
+def get_image_reader(image_reference: str) -> ImageReader:
+    """
+    Returns a ReportLab ImageReader for the image.
+    Fetches remote Supabase Storage URLs into memory (BytesIO).
+    If fetching fails, falls back to fetching the Supabase Storage default no_image.png into memory.
+    Zero persistent local filesystem dependencies.
+    """
+    resolved = resolve_image(image_reference)
+    data = None
+    if resolved.startswith(("http://", "https://")):
+        data = _fetch_image_bytes(resolved)
+
+    if not data:
+        fallback_url = f"{get_storage_cdn_base()}/defaults/no_image.png"
+        data = _fetch_image_bytes(fallback_url)
+
+    if data:
+        return ImageReader(BytesIO(data))
+
+    # Safe fallback if network is completely unreachable during offline test
+    transparent_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00"
+        b"\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    return ImageReader(BytesIO(transparent_png))
+
+
 def resolve_image(image_value: Any) -> str:
+    default_no_image = f"{get_storage_cdn_base()}/defaults/no_image.png"
     if image_value is None:
-        return PLACEHOLDER_IMAGE
+        return default_no_image if USE_DB else PLACEHOLDER_IMAGE
 
     try:
         if pd.isna(image_value):
-            return PLACEHOLDER_IMAGE
+            return default_no_image if USE_DB else PLACEHOLDER_IMAGE
     except TypeError:
         pass
 
     raw_value = str(image_value).strip().replace("\\", "/").lstrip("/")
     if not raw_value or raw_value.casefold() in {"nan", "none", "null"}:
-        return PLACEHOLDER_IMAGE
+        return default_no_image if USE_DB else PLACEHOLDER_IMAGE
 
     if raw_value.startswith(("http://", "https://")):
-        return raw_value
+        return raw_value.replace("/catalog/catalog/", "/catalog/")
 
     file_name = Path(raw_value).name
     upload_prefixes = (UPLOAD_MEDIA_PREFIX, "images/uploads/", "uploads/")
+
+    if USE_DB:
+        if raw_value.startswith(upload_prefixes) and file_name:
+            return f"{get_storage_cdn_base()}/uploads/{file_name}"
+        if raw_value.startswith("images/excel/") and file_name:
+            return f"{get_storage_cdn_base()}/catalog/{file_name}"
+        if raw_value in {PLACEHOLDER_IMAGE, "images/no_image.png", "no_image.png"}:
+            return default_no_image
+        return default_no_image
+
+    # Local development filesystem resolution (when USE_DB is False)
     if raw_value.startswith(upload_prefixes) and file_name:
         return f"{UPLOAD_MEDIA_PREFIX}{file_name}"
 
@@ -427,8 +512,6 @@ def load_custom_products() -> list[dict[str, Any]]:
 
     if USE_DB:
         rows = _get_sb().table("custom_products").select("id,name,supplier,category,image").execute().data or []
-        repaired_images: dict[str, str] = {}
-
         for row in rows:
             if not row.get("id") or not row.get("name") or not row.get("supplier"):
                 continue
@@ -436,14 +519,7 @@ def load_custom_products() -> list[dict[str, Any]]:
             product_id = str(row["id"])
             product_name = str(row["name"])
             supplier_name = str(row["supplier"])
-            stored_image = str(row.get("image") or PLACEHOLDER_IMAGE)
-            if stored_image == PLACEHOLDER_IMAGE:
-                recovered_image = find_uploaded_image_reference(supplier_name, product_name)
-                if not recovered_image:
-                    recovered_image = find_matching_catalog_image_reference(supplier_name, product_name)
-                if recovered_image:
-                    stored_image = recovered_image
-                    repaired_images[product_id] = recovered_image
+            stored_image = resolve_image(row.get("image"))
 
             deduped[product_id] = {
                 "id": product_id,
@@ -453,15 +529,6 @@ def load_custom_products() -> list[dict[str, Any]]:
                 "image": stored_image,
                 "source": "custom",
             }
-
-        if repaired_images:
-            sb = _get_sb()
-            for product_id, image_reference in repaired_images.items():
-                try:
-                    sb.table("custom_products").update({"image": image_reference}).eq("id", product_id).execute()
-                except Exception:
-                    pass
-
         return list(deduped.values())
 
     products = read_json(CUSTOM_PRODUCTS_PATH, [])
@@ -503,20 +570,7 @@ def load_custom_products() -> list[dict[str, Any]]:
 
 def save_custom_products(products: list[dict[str, Any]]) -> None:
     if USE_DB:
-        sb = _get_sb()
-        sb.table("custom_products").delete().neq("id", "").execute()
-        if products:
-            rows = [
-                {
-                    "id": p["id"],
-                    "name": p["name"],
-                    "supplier": p["supplier"],
-                    "category": p.get("category", ""),
-                    "image": p.get("image", PLACEHOLDER_IMAGE),
-                }
-                for p in products
-            ]
-            sb.table("custom_products").insert(rows).execute()
+        # Non-destructive individual row management is handled in specific endpoints
         return
     write_json(CUSTOM_PRODUCTS_PATH, products)
 
@@ -533,15 +587,41 @@ def load_deleted_products() -> set[str]:
 
 def save_deleted_products(product_ids: set[str]) -> None:
     if USE_DB:
-        sb = _get_sb()
-        sb.table("deleted_products").delete().neq("product_id", "").execute()
-        if product_ids:
-            sb.table("deleted_products").insert([{"product_id": pid} for pid in product_ids]).execute()
+        # Non-destructive individual row management is handled in specific endpoints
         return
     write_json(DELETED_PRODUCTS_PATH, sorted(product_ids))
 
 
 def load_orders() -> list[dict[str, Any]]:
+    if USE_DB:
+        rows = _get_sb().table("orders").select("product_id, order_type, order_quantity, status, created_at, updated_at").execute().data or []
+        orders: list[dict[str, Any]] = []
+        for item in rows:
+            if not isinstance(item, dict) or not item.get("product_id"):
+                continue
+
+            try:
+                order_quantity = int(item.get("order_quantity", 1))
+            except (TypeError, ValueError):
+                order_quantity = 1
+
+            order_type = str(item.get("order_type", "")).strip() or "carton"
+            status = str(item.get("status", "pending")).strip().lower() or "pending"
+            if status not in {"pending", "ordered"}:
+                status = "pending"
+
+            orders.append(
+                {
+                    "product_id": str(item["product_id"]),
+                    "order_type": order_type,
+                    "order_quantity": max(1, order_quantity),
+                    "status": status,
+                    "created_at": str(item.get("created_at", "") or ""),
+                    "updated_at": str(item.get("updated_at", "") or ""),
+                }
+            )
+        return orders
+
     raw_orders = read_json(ORDERS_PATH, [])
     if not isinstance(raw_orders, list):
         return []
@@ -571,7 +651,6 @@ def load_orders() -> list[dict[str, Any]]:
                 "updated_at": str(item.get("updated_at", "")),
             }
         )
-
     return orders
 
 
@@ -693,12 +772,61 @@ def load_catalog_products(excel_mtime: int) -> list[dict[str, Any]]:
     return catalog
 
 
+def load_catalog_products_db() -> list[dict[str, Any]]:
+    """Loads the 241 pre-migrated master catalog items directly from Supabase products table."""
+    sb = _get_sb()
+    rows = sb.table("products").select("id, name, supplier, category, image_url").execute().data or []
+    catalog: list[dict[str, Any]] = []
+    fallback_image = f"{get_storage_cdn_base()}/defaults/no_image.png"
+    for r in rows:
+        catalog.append(
+            {
+                "id": str(r["id"]),
+                "name": str(r["name"]),
+                "supplier": str(r["supplier"]),
+                "category": str(r.get("category") or ""),
+                "image": str(r.get("image_url") or fallback_image),
+                "source": "catalog",
+            }
+        )
+    catalog.sort(key=lambda item: (item["supplier"].lower(), item["name"].lower()))
+    return catalog
+
+
+def load_stock() -> dict[str, int]:
+    """Reads stock levels from Supabase or local JSON."""
+    if USE_DB:
+        sb = _get_sb()
+        rows = sb.table("stock").select("product_id,quantity").execute().data or []
+        return {str(r["product_id"]): int(r["quantity"]) for r in rows}
+    stock_map = read_json(STOCK_PATH, {})
+    return {str(k): int(v) for k, v in stock_map.items()}
+
+
 def load_products() -> list[dict[str, Any]]:
     if USE_DB:
-        rows = _get_sb().table("stock").select("product_id,quantity").execute().data or []
-        stock_map: dict[str, int] = {r["product_id"]: int(r["quantity"]) for r in rows}
-    else:
-        stock_map = read_json(STOCK_PATH, {})
+        stock_map = load_stock()
+        deleted_ids = load_deleted_products()
+
+        catalog_items = load_catalog_products_db()
+        custom_items = load_custom_products()
+        all_items = catalog_items + custom_items
+
+        products: list[dict[str, Any]] = []
+        for item in all_items:
+            if item["id"] in deleted_ids:
+                continue
+            products.append(
+                {
+                    **item,
+                    "image": resolve_image(item.get("image")),
+                    "stock": int(stock_map.get(item["id"], 0)),
+                }
+            )
+        return products
+
+    # Local development fallback when USE_DB is False
+    stock_map = read_json(STOCK_PATH, {})
     deleted_ids = load_deleted_products()
     products: list[dict[str, Any]] = []
 
@@ -782,7 +910,21 @@ def low_stock_products(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def create_unique_product_id(supplier: str, product_name: str) -> str:
     base_id = slugify(f"{supplier}-{product_name}")
-    existing_ids = {product["id"] for product in load_products()}
+    if USE_DB:
+        sb = _get_sb()
+        cat_rows = sb.table("products").select("id").execute().data or []
+        cust_rows = sb.table("custom_products").select("id").execute().data or []
+        del_rows = sb.table("deleted_products").select("product_id").execute().data or []
+        existing_ids = {r["id"] for r in cat_rows} | {r["id"] for r in cust_rows} | {r["product_id"] for r in del_rows}
+    else:
+        existing_ids = set()
+        if EXCEL_PATH.exists():
+            for p in load_catalog_products(EXCEL_PATH.stat().st_mtime_ns):
+                existing_ids.add(p["id"])
+        for p in load_custom_products():
+            existing_ids.add(p["id"])
+        existing_ids |= load_deleted_products()
+
     if base_id not in existing_ids:
         return base_id
 
@@ -790,6 +932,7 @@ def create_unique_product_id(supplier: str, product_name: str) -> str:
     while f"{base_id}-{suffix}" in existing_ids:
         suffix += 1
     return f"{base_id}-{suffix}"
+
 
 
 def save_uploaded_image(uploaded_file: Any, supplier: str, product_name: str) -> str:
@@ -802,20 +945,24 @@ def save_uploaded_image(uploaded_file: Any, supplier: str, product_name: str) ->
     if not file_bytes:
         raise ValueError("Image vide ou illisible.")
 
-    target_path = UPLOADS_DIR / safe_name
-    target_path.write_bytes(file_bytes)
-
-    legacy_target = STATIC_UPLOADS_DIR / safe_name
-    try:
-        shutil.copy2(target_path, legacy_target)
-    except OSError:
-        pass
-
     if USE_DB:
         content_type = str(getattr(uploaded_file, "mimetype", "") or mimetypes.guess_type(safe_name)[0] or "application/octet-stream")
+        upload_file_to_supabase_storage(f"uploads/{safe_name}", file_bytes, content_type)
+        # Best-effort local filesystem caching (never fail the request if disk is read-only)
         try:
-            upload_file_to_supabase_storage(safe_name, file_bytes, content_type)
-        except Exception:
+            target_path = UPLOADS_DIR / safe_name
+            target_path.write_bytes(file_bytes)
+            legacy_target = STATIC_UPLOADS_DIR / safe_name
+            shutil.copy2(target_path, legacy_target)
+        except OSError:
+            pass
+    else:
+        target_path = UPLOADS_DIR / safe_name
+        target_path.write_bytes(file_bytes)
+        legacy_target = STATIC_UPLOADS_DIR / safe_name
+        try:
+            shutil.copy2(target_path, legacy_target)
+        except OSError:
             pass
 
     return f"{UPLOAD_MEDIA_PREFIX}{safe_name}"
@@ -895,12 +1042,9 @@ def update_custom_product_image(product_id: str, new_image_path: str) -> bool:
 
 
 def draw_product_line(pdf: canvas.Canvas, y: float, product: dict[str, Any]) -> float:
-    image_path = get_image_file_path(product["image"])
-    if not image_path.exists():
-        image_path = get_image_file_path(PLACEHOLDER_IMAGE)
-
+    img_reader = get_image_reader(product.get("image", ""))
     try:
-        pdf.drawImage(ImageReader(str(image_path)), 28, y - 44, width=34, height=34, preserveAspectRatio=True)
+        pdf.drawImage(img_reader, 28, y - 44, width=34, height=34, preserveAspectRatio=True)
     except Exception:
         pass
 
@@ -952,12 +1096,9 @@ def build_stock_pdf(alerts: list[dict[str, Any]]) -> BytesIO:
 
 
 def draw_order_line(pdf: canvas.Canvas, y: float, order: dict[str, Any]) -> float:
-    image_path = get_image_file_path(order["image"])
-    if not image_path.exists():
-        image_path = get_image_file_path(PLACEHOLDER_IMAGE)
-
+    img_reader = get_image_reader(order.get("image", ""))
     try:
-        pdf.drawImage(ImageReader(str(image_path)), 28, y - 40, width=30, height=30, preserveAspectRatio=True)
+        pdf.drawImage(img_reader, 28, y - 40, width=30, height=30, preserveAspectRatio=True)
     except Exception:
         pass
 
@@ -1065,7 +1206,7 @@ def index() -> str:
         low_stock_threshold=LOW_STOCK_THRESHOLD,
         reorder_threshold=REORDER_THRESHOLD,
         logo_src=logo_path(),
-        excel_missing=not EXCEL_PATH.exists(),
+        excel_missing=(not USE_DB) and (not EXCEL_PATH.exists()),
     )
 
 
@@ -1168,6 +1309,27 @@ def delete_all_orders():
     ensure_static_assets()
 
     supplier = request.args.get("supplier", "").strip()
+    if USE_DB:
+        sb = _get_sb()
+        if not supplier:
+            res = sb.table("orders").select("product_id", count="exact").execute()
+            removed_count = res.count if res.count is not None else len(res.data or [])
+            sb.table("orders").delete().neq("product_id", "").execute()
+            return jsonify({"removed_count": removed_count})
+
+        products = load_products()
+        supplier_product_ids = [
+            item["id"]
+            for item in products
+            if item["supplier"].casefold() == supplier.casefold()
+        ]
+        if not supplier_product_ids:
+            return jsonify({"removed_count": 0})
+        res = sb.table("orders").select("product_id", count="exact").in_("product_id", supplier_product_ids).execute()
+        removed_count = res.count if res.count is not None else len(res.data or [])
+        sb.table("orders").delete().in_("product_id", supplier_product_ids).execute()
+        return jsonify({"removed_count": removed_count})
+
     orders = load_orders()
     if not supplier:
         removed_count = len(orders)
@@ -1208,28 +1370,43 @@ def upsert_order():
     if product is None:
         abort(404, description="Produit introuvable.")
 
-    orders = load_orders()
     timestamp = local_now().astimezone(timezone.utc).isoformat()
-    existing_order = next((item for item in orders if item["product_id"] == product_id), None)
 
-    if existing_order is None:
-        orders.append(
-            {
-                "product_id": product_id,
-                "order_type": order_type,
-                "order_quantity": order_quantity,
-                "status": "pending",
-                "created_at": timestamp,
-                "updated_at": timestamp,
-            }
-        )
+    if USE_DB:
+        sb = _get_sb()
+        existing = sb.table("orders").select("product_id, status").eq("product_id", product_id).execute().data or []
+        current_status = existing[0].get("status", "pending") if existing else "pending"
+        order_record = {
+            "product_id": product_id,
+            "order_type": order_type,
+            "order_quantity": order_quantity,
+            "status": current_status,
+            "updated_at": timestamp,
+        }
+        if not existing:
+            order_record["created_at"] = timestamp
+        sb.table("orders").upsert(order_record).execute()
     else:
-        existing_order["order_type"] = order_type
-        existing_order["order_quantity"] = order_quantity
-        existing_order["status"] = str(existing_order.get("status", "pending") or "pending")
-        existing_order["updated_at"] = timestamp
+        orders = load_orders()
+        existing_order = next((item for item in orders if item["product_id"] == product_id), None)
+        if existing_order is None:
+            orders.append(
+                {
+                    "product_id": product_id,
+                    "order_type": order_type,
+                    "order_quantity": order_quantity,
+                    "status": "pending",
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                }
+            )
+        else:
+            existing_order["order_type"] = order_type
+            existing_order["order_quantity"] = order_quantity
+            existing_order["status"] = str(existing_order.get("status", "pending") or "pending")
+            existing_order["updated_at"] = timestamp
+        save_orders(orders)
 
-    save_orders(orders)
     updated_orders = build_order_list(products)
     selected_order = next((item for item in updated_orders if item["product_id"] == product_id), None)
     return jsonify({"saved": True, "order": selected_order, "threshold": REORDER_THRESHOLD})
@@ -1245,14 +1422,22 @@ def update_order_status(product_id: str):
     if status not in {"pending", "ordered"}:
         abort(400, description="Statut de commande non supporte.")
 
-    orders = load_orders()
-    order = next((item for item in orders if item["product_id"] == product_id), None)
-    if order is None:
-        abort(404, description="Commande introuvable.")
+    timestamp = local_now().astimezone(timezone.utc).isoformat()
 
-    order["status"] = status
-    order["updated_at"] = local_now().astimezone(timezone.utc).isoformat()
-    save_orders(orders)
+    if USE_DB:
+        sb = _get_sb()
+        existing = sb.table("orders").select("product_id").eq("product_id", product_id).execute().data or []
+        if not existing:
+            abort(404, description="Commande introuvable.")
+        sb.table("orders").update({"status": status, "updated_at": timestamp}).eq("product_id", product_id).execute()
+    else:
+        orders = load_orders()
+        order = next((item for item in orders if item["product_id"] == product_id), None)
+        if order is None:
+            abort(404, description="Commande introuvable.")
+        order["status"] = status
+        order["updated_at"] = timestamp
+        save_orders(orders)
 
     products = load_products()
     updated_orders = build_order_list(products)
@@ -1264,6 +1449,14 @@ def update_order_status(product_id: str):
 def delete_order(product_id: str):
     ensure_data_files()
     ensure_static_assets()
+
+    if USE_DB:
+        sb = _get_sb()
+        existing = sb.table("orders").select("product_id").eq("product_id", product_id).execute().data or []
+        if not existing:
+            abort(404, description="Commande introuvable.")
+        sb.table("orders").delete().eq("product_id", product_id).execute()
+        return jsonify({"removed": True, "product_id": product_id})
 
     orders = load_orders()
     remaining_orders = [item for item in orders if item["product_id"] != product_id]
@@ -1290,7 +1483,9 @@ def create_product():
     if not supplier:
         abort(400, description="Fournisseur obligatoire.")
 
-    image_path = find_matching_catalog_image_reference(supplier, name) or PLACEHOLDER_IMAGE
+    image_path = find_matching_catalog_image_reference(supplier, name) or (
+        f"{get_storage_cdn_base()}/defaults/no_image.png" if USE_DB else PLACEHOLDER_IMAGE
+    )
     if uploaded_file is not None and uploaded_file.filename:
         try:
             image_path = save_uploaded_image(uploaded_file, supplier, name)
@@ -1298,34 +1493,46 @@ def create_product():
             abort(400, description=str(exc))
 
     product_id = create_unique_product_id(supplier, name)
-    custom_products = load_custom_products()
-    custom_products.append(
-        {
-            "id": product_id,
-            "name": name,
-            "supplier": supplier,
-            "category": category,
-            "image": image_path,
-            "source": "custom",
-        }
-    )
-    save_custom_products(custom_products)
 
-    deleted_ids = load_deleted_products()
-    if product_id in deleted_ids:
-        deleted_ids.discard(product_id)
-        save_deleted_products(deleted_ids)
+    if USE_DB:
+        sb = _get_sb()
+        sb.table("custom_products").upsert(
+            {
+                "id": product_id,
+                "name": name,
+                "supplier": supplier,
+                "category": category,
+                "image": image_path,
+            }
+        ).execute()
+        sb.table("deleted_products").delete().eq("product_id", product_id).execute()
+        sb.table("stock").upsert({"product_id": product_id, "quantity": initial_stock}).execute()
+    else:
+        custom_products = load_custom_products()
+        custom_products.append(
+            {
+                "id": product_id,
+                "name": name,
+                "supplier": supplier,
+                "category": category,
+                "image": image_path,
+                "source": "custom",
+            }
+        )
+        save_custom_products(custom_products)
+
+        deleted_ids = load_deleted_products()
+        if product_id in deleted_ids:
+            deleted_ids.discard(product_id)
+            save_deleted_products(deleted_ids)
+
+        stock_map = read_json(STOCK_PATH, {})
+        stock_map[product_id] = initial_stock
+        write_json(STOCK_PATH, stock_map)
 
     # Reset caches so the new product appears immediately.
     load_catalog_products.cache_clear()
     extract_embedded_images.cache_clear()
-
-    if USE_DB:
-        _get_sb().table("stock").upsert({"product_id": product_id, "quantity": initial_stock}).execute()
-    else:
-        stock_map = read_json(STOCK_PATH, {})
-        stock_map[product_id] = initial_stock
-        write_json(STOCK_PATH, stock_map)
 
     return jsonify(
         {
@@ -1349,19 +1556,28 @@ def delete_product(product_id: str):
     if product is None:
         abort(404, description="Produit introuvable.")
 
-    deleted_ids = load_deleted_products()
-    deleted_ids.add(product_id)
-    save_deleted_products(deleted_ids)
+    if USE_DB:
+        sb = _get_sb()
+        sb.table("deleted_products").upsert({"product_id": product_id}).execute()
+        sb.table("stock").delete().eq("product_id", product_id).execute()
+        sb.table("alerts_dismissed").delete().eq("product_id", product_id).execute()
+        sb.table("orders").delete().eq("product_id", product_id).execute()
+        sb.table("custom_products").delete().eq("id", product_id).execute()
+    else:
+        deleted_ids = load_deleted_products()
+        deleted_ids.add(product_id)
+        save_deleted_products(deleted_ids)
+        cleanup_deleted_product(product_id)
+        remove_custom_product_if_needed(product_id)
 
-    cleanup_deleted_product(product_id)
-    remove_custom_product_if_needed(product_id)
-
-    return jsonify({
-        "id": product_id,
-        "name": product.get("name", ""),
-        "supplier": product.get("supplier", ""),
-        "deleted": True,
-    })
+    return jsonify(
+        {
+            "id": product_id,
+            "name": product.get("name", ""),
+            "supplier": product.get("supplier", ""),
+            "deleted": True,
+        }
+    )
 
 
 @app.post("/api/products/<product_id>/image")
@@ -1385,26 +1601,28 @@ def update_product_image(product_id: str):
     except ValueError as exc:
         abort(400, description=str(exc))
 
-    if not update_custom_product_image(product_id, image_path):
-        abort(404, description="Produit introuvable.")
+    if USE_DB:
+        sb = _get_sb()
+        sb.table("custom_products").update({"image": image_path}).eq("id", product_id).execute()
+    else:
+        if not update_custom_product_image(product_id, image_path):
+            abort(404, description="Produit introuvable.")
 
     return jsonify({"id": product_id, "image": image_path, "updated": True})
 
 
 @app.get("/media/uploads/<path:filename>")
 def serve_uploaded_media(filename: str):
-    ensure_data_files()
-
     safe_name = Path(filename).name
+    if USE_DB:
+        from flask import redirect
+        return redirect(f"{get_storage_cdn_base()}/uploads/{safe_name}", code=302)
+
+    ensure_data_files()
     file_path = (UPLOADS_DIR / safe_name).resolve()
     uploads_root = UPLOADS_DIR.resolve()
-    if uploads_root not in file_path.parents:
+    if uploads_root not in file_path.parents or not file_path.exists():
         abort(404, description="Image introuvable.")
-
-    if not file_path.exists():
-        cached_path = cache_uploaded_file(safe_name)
-        if cached_path is None or not cached_path.exists():
-            abort(404, description="Image introuvable.")
 
     mime_type = mimetypes.guess_type(safe_name)[0]
     return send_from_directory(UPLOADS_DIR, safe_name, conditional=True, mimetype=mime_type)

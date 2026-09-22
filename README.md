@@ -1,140 +1,139 @@
-# Saikoon Kitchen Stock System
+# SAIKOON Stock Management
 
-Simple stock management for daily kitchen operations.
+A restaurant inventory and purchase-order management system built with Flask, Supabase and Vercel.
 
-Designed for:
-- Android tablet in kitchen
-- iPhone for owner
-- PC for management
+## Features
 
-No login required.
+- Stock management
+- Supplier-based product catalog
+- Product search
+- Low-stock alerts
+- Stock quantity adjustments
+- Custom product creation
+- Product image uploads
+- Product deletion
+- Purchase/order management
+- Supplier-based order lists
+- Stock PDF export
+- Order PDF export
+- Responsive web interface
 
-## 1. What This App Does
+## Production Architecture
 
-- Shows products by supplier
-- Lets you update stock quantity quickly
-- Shows active stock alerts
-- Lets you dismiss one alert or clear all alerts
-- Exports stock alerts to PDF
-- Syncs updates across devices every few seconds
+### Frontend / UI
+- HTML5
+- Vanilla CSS (custom design system)
+- Vanilla JavaScript
 
-## 2. Daily Owner Workflow (Login-Free)
+### Backend
+- Python 3.12
+- Flask
+- Vercel Python serverless deployment (`@vercel/python`)
 
-1. Open the app URL on phone or tablet
-2. Select supplier
-3. Change quantity with plus, minus, or typing
-4. Wait 1 to 2 seconds for auto-save and sync
-5. Check alert panel for active stock items
-6. Use Export PDF when needed
+### Database
+- Supabase PostgreSQL
 
-Notes:
-- Quantity saves automatically
-- Other devices update without manual refresh in normal use
+### Storage
+- Supabase Storage
+- Public `product-images` bucket for catalog and uploaded media
 
-## 3. Alert Behavior
+### Production Hosting
+- Vercel Serverless Platform
 
-- Product appears in alerts when stock is above 0
-- If an alert is dismissed, it stays hidden after refresh
-- If stock changes later, the alert can reappear
-- Clear all alerts hides all current alerts for that view
+### Legacy / Fallback Environment
+- Render remains available as a fallback environment but is not the primary production deployment.
 
-## 4. Cross-Device Use
+## Data Architecture
 
-Use one public URL from Render after deployment.
-All devices must open the same URL.
+The application uses Supabase PostgreSQL as its persistent cloud database:
 
-Example:
-- Phone: same Render URL
-- Tablet: same Render URL
-- PC: same Render URL
+- `products`: Contains the master catalog products.
+- `custom_products`: Contains user-created and custom product records.
+- `stock`: Contains live inventory quantities per product.
+- `history`: Contains audit records of all stock adjustments over time.
+- `alerts_dismissed`: Tracks dismissed low-stock alerts and their dismissed threshold.
+- `deleted_products`: Contains intentionally deleted product IDs (soft-deletion filtering).
+- `orders`: Contains purchase and supplier order records.
+- **Product Images:** Stored in Supabase Storage (`product-images` bucket).
+- **Stateless Filesystem:** Vercel does NOT rely on persistent local filesystem storage.
 
-## 5. Data Stored by the App
+Uploaded custom product images are streamed directly from memory into Supabase Storage in serverless mode, ensuring zero dependency on local disk persistence.
 
-Important files:
-- data/products.xlsx (catalog source)
-- data/stock.json (current stock)
-- data/history.json (stock change history)
-- data/alerts_dismissed.json (dismissed alerts state)
-- data/custom_products.json (custom product records)
-- data/deleted_products.json (deleted product ids)
+## Vercel Compatibility
 
-## 6. Backup Plan (Recommended)
+The application codebase is fully optimized for Vercel serverless execution:
 
-Backup frequency:
-- Daily end of shift
-- Extra backup before any big update
+- **Zero Persistent Filesystem Dependency:** No local writable storage is required on Vercel.
+- **In-Memory PDF Generation:** Both Stock PDF and Orders PDF are generated entirely in memory via ReportLab and streamed to the client.
+- **Database-Backed Catalog:** Product catalog is queried directly from Supabase.
+- **Database-Backed Orders:** Orders are queried and updated in Supabase.
+- **Cloud Object Storage:** All product and uploaded images are served from Supabase Storage CDN.
+- **Decoupled Uploads:** Custom product images are uploaded directly from memory to Supabase Storage.
+- **Render Compatibility Preserved:** Dual-mode architecture (`USE_DB` vs local JSON fallback) ensures backward compatibility with Render.
 
-Backup steps:
-1. Copy the full data folder to a safe location
-2. Keep date in folder name, example: backup-2026-04-02
-3. Keep at least last 14 backups
+## Environment Variables
 
-Minimum critical backup files:
-- data/stock.json
-- data/history.json
-- data/alerts_dismissed.json
-- data/custom_products.json
-- data/deleted_products.json
+Configure the following environment variables in your deployment environment (Vercel project settings or local `.env`):
 
-## 7. Recovery Plan
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_KEY`
+- `SUPABASE_STORAGE_BUCKET`
+- `APP_TIMEZONE`
 
-If data is lost or corrupted:
-1. Stop the app
-2. Replace current files in data folder with backup copy
-3. Start app again
-4. Check stock values and alerts
+> **IMPORTANT:** All secrets and credentials must be configured strictly through secure environment variables and must **never** be committed to Git.
 
-If products catalog is missing:
-1. Restore data/products.xlsx
-2. Restart app
+## Deployment
 
-## 8. Render Hosting Notes
+The standard production deployment flow:
 
-This project includes Render configuration in render.yaml.
+```
+GitHub (main branch)
+        ↓
+      Vercel
+        ↓
+    Production
+```
 
-Current setup:
-- Python web service
-- Gunicorn start command
-- Persistent disk path set with APP_DATA_DIR=/var/data
+Manual deployment via Vercel CLI:
+```bash
+npx vercel --prod
+```
 
-Important:
-- Persistent disk is required so stock is not lost between deploys
-- Keep plan at level that supports persistent disk
+> **Note:** Production deployments should normally be handled automatically through the connected GitHub / Vercel integration workflow once configured.
 
-## 9. Local Run (Development)
+## Development
 
-From project folder:
-1. Create and activate virtual environment
-2. Install dependencies from requirements.txt
-3. Start app with python app.py
-4. Open http://127.0.0.1:5000
+To run the application locally using the existing virtual environment:
 
-For phone testing on same Wi-Fi:
-- Open http://YOUR_PC_IPV4:5000
+1. Activate your local virtual environment:
+   ```bash
+   # On Windows (PowerShell)
+   .venv\Scripts\Activate.ps1
 
-## 10. Troubleshooting Quick List
+   # On macOS/Linux
+   source .venv/bin/activate
+   ```
 
-If app is not updating on another device:
-- Wait 2 to 3 seconds for sync poll
-- Ensure both devices use same app URL
-- Check internet connection
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-If logo does not update:
-- Hard refresh browser once
+3. Configure environment variables in a local `.env` file (ensure `.env` is ignored by Git).
 
-If app does not start:
-- Verify Python environment is active
-- Verify requirements are installed
-- Check terminal error output
+4. Start the development server:
+   ```bash
+   python app.py
+   ```
 
-## 11. Handoff Checklist for Owner
+5. Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser.
 
-- Open URL on iPhone and Android tablet
-- Confirm supplier list loads
-- Confirm quantity update saves and syncs
-- Confirm alert dismiss works and persists
-- Confirm PDF export downloads
-- Confirm daily backup routine is understood
+## Migration Notes
 
----
-Prepared for Saikoon Kitchen, Torcy Bay 2.
+The application was successfully migrated from a Render/local-filesystem architecture to:
+
+- **Hosting:** Vercel Serverless
+- **Database:** Supabase PostgreSQL
+- **Asset Storage:** Supabase Storage
+
+All production data (master catalog, custom products, live inventory, stock history, active orders, dismissed alerts, and product images) was preserved during the migration.

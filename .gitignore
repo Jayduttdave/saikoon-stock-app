@@ -1,22 +1,46 @@
+# Virtual Environment
 .venv/
-__pycache__/
-*.pyc
-stock_report_*.pdf
+venv/
+ENV/
 
-# Environment and secrets
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment & Secrets
 .env
 .env.*
+.env*.local
+!.env.example
 
-# Python tooling caches
+# Vercel & Node
+.vercel/
+node_modules/
+
+# Python Tooling Caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 
-# OS/editor clutter
+# OS & Editor Files
 .DS_Store
 Thumbs.db
 .vscode/settings.json
+.idea/
 
-# Runtime-generated files
+# Local/Private Backups and Non-Production Data
+data/*.backup*
+data/products.backup*
+data/Fournisseur Yoomi.xlsx
+home page.png
+scripts/
+
+# Runtime Generated Files & Local Artifacts
 static/images/uploads/
 data/*.json
+*.pdf
+stock_report_*.pdf
+*.tmp
+*.temp
+temp/
