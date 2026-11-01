@@ -25,6 +25,25 @@ from reportlab.pdfgen import canvas
 
 
 BASE_DIR = Path(__file__).resolve().parent
+
+
+def _load_dotenv_if_present() -> None:
+    env_file = BASE_DIR / ".env"
+    if env_file.exists():
+        try:
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip().strip("'\"")
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+        except OSError:
+            pass
+
+
+_load_dotenv_if_present()
+
 try:
     _sb_create_client = __import__("supabase").create_client
     _SUPABASE_LIB = True
@@ -61,6 +80,22 @@ CATEGORY_KEYS = {"category", "categorie"}
 SUPPLIER_KEYS = {"supplier", "fournisseur"}
 
 app = Flask(__name__)
+
+# ── Flask Secret & Session Configuration ─────────────────────────────────────
+FLASK_SECRET_KEY: str = os.environ.get("FLASK_SECRET_KEY", "").strip()
+if not FLASK_SECRET_KEY:
+    if not bool(os.environ.get("VERCEL")):
+        FLASK_SECRET_KEY = "saikoon-stock-dev-secret-key-local-only"
+    else:
+        FLASK_SECRET_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "saikoon-production-session-fallback-secret")
+
+app.secret_key = FLASK_SECRET_KEY
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=bool(os.environ.get("VERCEL") or os.environ.get("RENDER")),
+)
+
 # ── Supabase / persistent-DB layer ──────────────────────────────────────────
 # Set SUPABASE_URL and SUPABASE_SERVICE_KEY env vars to enable DB storage.
 # On Vercel and Render production, USE_DB is the authoritative architecture.
@@ -76,6 +111,7 @@ else:
     SUPABASE_URL = ""
 
 SUPABASE_KEY: str = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+SUPABASE_ANON_KEY: str = os.environ.get("SUPABASE_ANON_KEY", "").strip()
 USE_DB: bool = bool(_SUPABASE_LIB and SUPABASE_URL and SUPABASE_KEY)
 IS_VERCEL: bool = bool(os.environ.get("VERCEL"))
 _sb_client: Any = None
@@ -193,6 +229,12 @@ def _get_sb() -> Any:
             raise RuntimeError("Supabase client library is not available.")
         _sb_client = _sb_create_client(SUPABASE_URL, SUPABASE_KEY)
     return _sb_client
+
+
+def _get_auth_client() -> Any:
+    """Return the Supabase Auth client for authentication operations."""
+    return _get_sb().auth
+
 
 
 def _storage_api_url(path: str) -> str:
