@@ -1673,3 +1673,30 @@ setSidebarOpen(false);
 showWorkspaceSection(window.location.hash ? window.location.hash.slice(1) : 'stock-management-section', { scroll: false });
 syncActiveSection();
 updateScrollButtons();
+
+// Phase 5 — Secure Logout Handlers
+(() => {
+  const handleLogout = async (btn) => {
+    try {
+      if (btn) {
+        btn.disabled = true;
+        const textSpan = btn.querySelector('span') || btn;
+        textSpan.textContent = 'Déconnexion...';
+      }
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (_) {
+      // Best-effort network logout
+    } finally {
+      window.location.assign('/login');
+    }
+  };
+
+  const topLogoutBtn = document.querySelector('#logout-btn');
+  if (topLogoutBtn) {
+    topLogoutBtn.addEventListener('click', () => handleLogout(topLogoutBtn));
+  }
+  const sidebarLogoutBtn = document.querySelector('#sidebar-logout-btn');
+  if (sidebarLogoutBtn) {
+    sidebarLogoutBtn.addEventListener('click', () => handleLogout(sidebarLogoutBtn));
+  }
+})();

@@ -168,14 +168,50 @@
       </div>
     </main>
 
-    <!-- Modal for Forgot Password Notice -->
+    <!-- Modal for Password Recovery -->
     <div id="forgot-modal" class="forgot-modal-backdrop" hidden>
       <div class="forgot-modal-card" role="dialog" aria-modal="true" aria-labelledby="forgot-modal-title">
-        <h2 id="forgot-modal-title" class="forgot-modal-heading">Récupération de compte</h2>
+        <button type="button" id="forgot-modal-x-btn" class="modal-x-btn" aria-label="Fermer">×</button>
+        <div class="modal-seal-badge" aria-hidden="true">🔑</div>
+        <h2 id="forgot-modal-title" class="forgot-modal-heading">Mot de passe oublié</h2>
         <p class="forgot-modal-body">
-          Pour des raisons de sécurité, la réinitialisation des accès s'effectue directement auprès de la direction ou de l'administrateur Saikoon.
+          Saisissez votre adresse email pour recevoir un lien de réinitialisation sécurisé.
         </p>
-        <button type="button" id="forgot-modal-close-btn" class="forgot-modal-close-btn">J'ai compris</button>
+
+        <div id="forgot-status-banner" class="forgot-status-banner" hidden role="alert">
+          <span id="forgot-status-text"></span>
+        </div>
+
+        <form id="forgot-password-form" class="forgot-password-form" novalidate>
+          <div class="input-group">
+            <label for="forgot-email" class="input-label">Adresse email</label>
+            <div class="input-field-wrapper">
+              <span class="input-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
+                  <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                  <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                </svg>
+              </span>
+              <input
+                id="forgot-email"
+                type="email"
+                class="form-input"
+                placeholder="votre-email@saikoon.fr"
+                required
+                autocomplete="email"
+                spellcheck="false"
+              >
+            </div>
+          </div>
+
+          <button type="submit" id="forgot-submit-btn" class="forgot-submit-btn">
+            <span class="btn-text">Envoyer le lien</span>
+          </button>
+        </form>
+
+        <div class="forgot-footer">
+          <button type="button" id="forgot-modal-close-btn" class="forgot-back-btn">Retour à la connexion</button>
+        </div>
       </div>
     </div>
 

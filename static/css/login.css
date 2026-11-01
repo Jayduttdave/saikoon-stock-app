@@ -719,14 +719,37 @@ body.login-body {
 
 .forgot-modal-card {
   width: 100%;
-  max-width: 380px;
+  max-width: 420px;
   background: #0f172a;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 18px;
-  padding: 26px 24px 22px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+  border-radius: 20px;
+  padding: 30px 26px 24px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 1px 1px rgba(255, 255, 255, 0.08);
   text-align: center;
+  position: relative;
   animation: modalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-x-btn {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.modal-x-btn:hover {
+  color: #fff;
+}
+
+.modal-seal-badge {
+  font-size: 1.6rem;
+  margin-bottom: 8px;
 }
 
 @keyframes modalPop {
@@ -741,33 +764,86 @@ body.login-body {
 }
 
 .forgot-modal-heading {
-  font-size: 1.15rem;
+  font-size: 1.25rem;
+  font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .forgot-modal-body {
   font-size: 0.88rem;
   color: var(--text-secondary);
   line-height: 1.5;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
-.forgot-modal-close-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  color: #fff;
+.forgot-status-banner {
+  padding: 10px 14px;
   border-radius: 10px;
-  padding: 10px 22px;
-  font-size: 0.88rem;
+  margin-bottom: 16px;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.forgot-status-banner.is-success {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+}
+
+.forgot-status-banner.is-error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+.forgot-password-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+}
+
+.forgot-submit-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: var(--radius-btn);
+  border: none;
+  background: linear-gradient(135deg, var(--brand-red) 0%, var(--brand-red-deep) 100%);
+  color: #fff;
+  font-size: 0.92rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s ease;
+  box-shadow: var(--shadow-btn);
+  transition: all 0.2s ease;
 }
 
-.forgot-modal-close-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
+.forgot-submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px -4px rgba(232, 76, 61, 0.55);
 }
+
+.forgot-footer {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.forgot-back-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.forgot-back-btn:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
 
 /* ==========================================================================
    RESPONSIVE DESIGN (Desktop, Tablet, Mobile)

@@ -1244,7 +1244,16 @@ def enforce_authentication() -> Any:
         return None
 
     # Allow public authentication endpoints
-    if path in {"/login", "/api/auth/login", "/api/auth/session"}:
+    public_paths = {
+        "/login",
+        "/reset-password",
+        "/api/auth/login",
+        "/api/auth/logout",
+        "/api/auth/session",
+        "/api/auth/forgot-password",
+        "/api/auth/reset-password",
+    }
+    if path in public_paths:
         return None
 
     # Block unauthenticated access to the application and its APIs
@@ -1291,6 +1300,101 @@ def api_auth_login():
         if "invalid" in error_msg.lower() or "credentials" in error_msg.lower() or "400" in error_msg:
             return jsonify({"error": "Identifiants incorrects. Veuillez vérifier votre adresse email et votre mot de passe."}), 401
         return jsonify({"error": "Échec de l'authentification. Veuillez vérifier vos identifiants."}), 401
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout():
+    session.clear()
+    resp = jsonify({"success": True})
+    cookie_name = app.config.get("SESSION_COOKIE_NAME", "session")
+    resp.delete_cookie(cookie_name, path="/")
+    return resp
+
+
+@app.post("/api/auth/forgot-password")
+def api_auth_forgot_password():
+    payload = request.get_json(silent=True) or {}
+    email = str(payload.get("email", "")).strip().lower()
+
+    generic_response = jsonify({
+        "success": True,
+        "message": "Si cette adresse est enregistrée, un lien de réinitialisation a été envoyé."
+    })
+
+    if not email:
+        return jsonify({"error": "Veuillez renseigner votre adresse email."}), 400
+
+    if "@" not in email or "." not in email:
+        return jsonify({"error": "Format d'adresse email invalide."}), 400
+
+    if not USE_DB:
+        return generic_response
+
+    try:
+        redirect_url = f"{request.host_url.rstrip('/')}/reset-password"
+        auth_client = _get_auth_client()
+        auth_client.reset_password_for_email(email, {"redirect_to": redirect_url})
+    except Exception:
+        # Always return generic message to prevent email enumeration
+        pass
+
+    return generic_response
+
+
+@app.get("/reset-password")
+def reset_password_page() -> Any:
+    return render_template("reset_password.html", logo_src=logo_path())
+
+
+@app.post("/api/auth/reset-password")
+def api_auth_reset_password():
+    payload = request.get_json(silent=True) or {}
+    new_password = str(payload.get("new_password", "") or "")
+    confirm_password = str(payload.get("confirm_password", "") or "")
+    token_hash = str(payload.get("token_hash", "") or "").strip()
+    access_token = str(payload.get("access_token", "") or "").strip()
+    code = str(payload.get("code", "") or "").strip()
+
+    if not new_password:
+        return jsonify({"error": "Le mot de passe ne peut pas être vide."}), 400
+
+    if len(new_password) < 6:
+        return jsonify({"error": "Le mot de passe doit comporter au moins 6 caractères."}), 400
+
+    if new_password != confirm_password:
+        return jsonify({"error": "Les mots de passe ne correspondent pas."}), 400
+
+    if not (token_hash or access_token or code):
+        return jsonify({"error": "Ce lien de réinitialisation est invalide ou a expiré. Veuillez demander un nouveau lien."}), 400
+
+    if not USE_DB:
+        return jsonify({"error": "Le service d'authentification n'est pas disponible en mode local sans base de données."}), 503
+
+    try:
+        auth_client = _get_auth_client()
+        if token_hash:
+            auth_client.verify_otp({"token_hash": token_hash, "type": "recovery"})
+            auth_client.update_user({"password": new_password})
+        elif code:
+            auth_client.exchange_code_for_session({"auth_code": code})
+            auth_client.update_user({"password": new_password})
+        elif access_token:
+            auth_client.set_session(access_token, "")
+            auth_client.update_user({"password": new_password})
+        else:
+            return jsonify({"error": "Jeton d'authentification manquant."}), 400
+
+        # Invalidate any active session so the user must log in with their new password
+        session.clear()
+        resp = jsonify({"success": True, "message": "Mot de passe mis à jour avec succès."})
+        cookie_name = app.config.get("SESSION_COOKIE_NAME", "session")
+        resp.delete_cookie(cookie_name, path="/")
+        return resp
+    except Exception as exc:
+        error_str = str(exc)
+        if "different" in error_str.lower():
+            return jsonify({"error": "Le nouveau mot de passe doit être différent de l'ancien mot de passe."}), 400
+        return jsonify({"error": "Ce lien de réinitialisation est invalide ou a expiré. Veuillez demander un nouveau lien."}), 400
 
 
 @app.get("/api/auth/session")

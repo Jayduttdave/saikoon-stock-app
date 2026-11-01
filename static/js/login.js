@@ -42,31 +42,101 @@
   }
 
   /* -------------------------------------------------------------------------
-     2. Forgot Password Notice Modal
+     2. Forgot Password Recovery Modal
      ------------------------------------------------------------------------- */
-  if (forgotLink && forgotModal && forgotCloseBtn) {
+  const forgotXBtn = document.querySelector('#forgot-modal-x-btn');
+  const forgotForm = document.querySelector('#forgot-password-form');
+  const forgotEmailInput = document.querySelector('#forgot-email');
+  const forgotSubmitBtn = document.querySelector('#forgot-submit-btn');
+  const forgotStatusBanner = document.querySelector('#forgot-status-banner');
+  const forgotStatusText = document.querySelector('#forgot-status-text');
+
+  function showForgotStatus(message, isSuccess = true) {
+    if (!forgotStatusBanner || !forgotStatusText) return;
+    forgotStatusText.textContent = message;
+    forgotStatusBanner.hidden = false;
+    forgotStatusBanner.classList.toggle('is-success', isSuccess);
+    forgotStatusBanner.classList.toggle('is-error', !isSuccess);
+  }
+
+  function hideForgotStatus() {
+    if (!forgotStatusBanner) return;
+    forgotStatusBanner.hidden = true;
+  }
+
+  function closeModal() {
+    if (forgotModal) forgotModal.hidden = true;
+    hideForgotStatus();
+    if (forgotLink) forgotLink.focus();
+  }
+
+  if (forgotLink && forgotModal) {
     forgotLink.addEventListener('click', event => {
       event.preventDefault();
       forgotModal.hidden = false;
-      forgotCloseBtn.focus();
-    });
-
-    forgotCloseBtn.addEventListener('click', () => {
-      forgotModal.hidden = true;
-      forgotLink.focus();
-    });
-
-    forgotModal.addEventListener('click', event => {
-      if (event.target === forgotModal) {
-        forgotModal.hidden = true;
-        forgotLink.focus();
+      hideForgotStatus();
+      if (forgotEmailInput) {
+        // Pre-fill with login email if user typed one
+        if (emailInput && emailInput.value.trim()) {
+          forgotEmailInput.value = emailInput.value.trim();
+        }
+        forgotEmailInput.focus();
       }
     });
 
+    if (forgotCloseBtn) forgotCloseBtn.addEventListener('click', closeModal);
+    if (forgotXBtn) forgotXBtn.addEventListener('click', closeModal);
+
+    forgotModal.addEventListener('click', event => {
+      if (event.target === forgotModal) closeModal();
+    });
+
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && !forgotModal.hidden) {
-        forgotModal.hidden = true;
-        forgotLink.focus();
+      if (event.key === 'Escape' && !forgotModal.hidden) closeModal();
+    });
+  }
+
+  if (forgotForm && forgotEmailInput && forgotSubmitBtn) {
+    forgotForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      hideForgotStatus();
+
+      const email = forgotEmailInput.value.trim();
+      if (!email) {
+        showForgotStatus('Veuillez renseigner votre adresse email.', false);
+        forgotEmailInput.focus();
+        return;
+      }
+
+      if (!email.includes('@') || !email.includes('.')) {
+        showForgotStatus('Format d\'adresse email invalide.', false);
+        forgotEmailInput.focus();
+        return;
+      }
+
+      const submitText = forgotSubmitBtn.querySelector('.btn-text');
+      forgotSubmitBtn.disabled = true;
+      if (submitText) submitText.textContent = 'Envoi en cours...';
+
+      try {
+        const response = await fetch('/api/auth/forgot-password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({ email }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        const message = data.message || 'Si cette adresse est enregistrée, un lien de réinitialisation a été envoyé.';
+        showForgotStatus(message, true);
+        forgotEmailInput.value = '';
+      } catch (_) {
+        showForgotStatus('Si cette adresse est enregistrée, un lien de réinitialisation a été envoyé.', true);
+      } finally {
+        forgotSubmitBtn.disabled = false;
+        if (submitText) submitText.textContent = 'Envoyer le lien';
       }
     });
   }
