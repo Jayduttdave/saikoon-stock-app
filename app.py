@@ -7,7 +7,7 @@ import re
 import shutil
 import unicodedata
 from io import BytesIO
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
@@ -94,6 +94,7 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=bool(os.environ.get("VERCEL") or os.environ.get("RENDER")),
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
 )
 
 # ── Supabase / persistent-DB layer ──────────────────────────────────────────
@@ -1235,6 +1236,26 @@ def append_history(product: dict[str, Any], previous_stock: int, new_stock: int)
         write_json(HISTORY_PATH, history)
 
 
+@app.before_request
+def enforce_authentication() -> Any:
+    path = request.path
+    # Allow static assets and favicon
+    if path.startswith("/static/") or path == "/favicon.ico":
+        return None
+
+    # Allow public authentication endpoints
+    if path in {"/login", "/api/auth/login", "/api/auth/session"}:
+        return None
+
+    # Block unauthenticated access to the application and its APIs
+    if not session.get("user_id"):
+        if path.startswith("/api/") or path.startswith("/media/"):
+            return jsonify({"error": "authentication_required"}), 401
+        return redirect("/login")
+
+    return None
+
+
 @app.get("/login")
 def login() -> Any:
     if session.get("user_id"):
@@ -1261,6 +1282,7 @@ def api_auth_login():
         if not user or not getattr(user, "id", None):
             return jsonify({"error": "Identifiants incorrects. Veuillez vérifier votre adresse email et votre mot de passe."}), 401
 
+        session.permanent = True
         session["user_id"] = str(user.id)
         session["user_email"] = str(getattr(user, "email", "") or email)
         return jsonify({"success": True, "redirect": "/"})

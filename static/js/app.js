@@ -1,3 +1,18 @@
+// Centralized authentication error interceptor (Phase 4)
+(() => {
+  const originalFetch = window.fetch;
+  window.fetch = async (...args) => {
+    const response = await originalFetch(...args);
+    if (response.status === 401) {
+      const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+      if (url.startsWith('/api/') || url.startsWith('/media/')) {
+        window.location.assign('/login');
+      }
+    }
+    return response;
+  };
+})();
+
 const supplierSelect = document.querySelector('#supplier-select');
 const searchInput = document.querySelector('#product-search');
 const productsGrid = document.querySelector('#products-grid');
