@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
-from flask import Flask, abort, jsonify, render_template, request, send_file, send_from_directory
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from openpyxl import load_workbook
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
@@ -232,8 +232,11 @@ def _get_sb() -> Any:
 
 
 def _get_auth_client() -> Any:
-    """Return the Supabase Auth client for authentication operations."""
-    return _get_sb().auth
+    """Return an isolated Supabase Auth client for authentication operations."""
+    if _sb_create_client is None:
+        raise RuntimeError("Supabase client library is not available.")
+    key = SUPABASE_ANON_KEY or SUPABASE_KEY
+    return _sb_create_client(SUPABASE_URL, key).auth
 
 
 
@@ -1230,6 +1233,51 @@ def append_history(product: dict[str, Any], previous_stock: int, new_stock: int)
         history = read_json(HISTORY_PATH, [])
         history.append(entry)
         write_json(HISTORY_PATH, history)
+
+
+@app.get("/login")
+def login() -> Any:
+    if session.get("user_id"):
+        return redirect("/")
+    return render_template("login.html", logo_src=logo_path())
+
+
+@app.post("/api/auth/login")
+def api_auth_login():
+    payload = request.get_json(silent=True) or {}
+    email = str(payload.get("email", "")).strip()
+    password = str(payload.get("password", "") or "")
+
+    if not email or not password:
+        return jsonify({"error": "Veuillez renseigner votre adresse email et votre mot de passe."}), 400
+
+    if not USE_DB:
+        return jsonify({"error": "Le service d'authentification n'est pas disponible en mode local sans base de données."}), 503
+
+    try:
+        auth_client = _get_auth_client()
+        res = auth_client.sign_in_with_password({"email": email, "password": password})
+        user = getattr(res, "user", None)
+        if not user or not getattr(user, "id", None):
+            return jsonify({"error": "Identifiants incorrects. Veuillez vérifier votre adresse email et votre mot de passe."}), 401
+
+        session["user_id"] = str(user.id)
+        session["user_email"] = str(getattr(user, "email", "") or email)
+        return jsonify({"success": True, "redirect": "/"})
+    except Exception as exc:
+        error_msg = str(exc)
+        if "invalid" in error_msg.lower() or "credentials" in error_msg.lower() or "400" in error_msg:
+            return jsonify({"error": "Identifiants incorrects. Veuillez vérifier votre adresse email et votre mot de passe."}), 401
+        return jsonify({"error": "Échec de l'authentification. Veuillez vérifier vos identifiants."}), 401
+
+
+@app.get("/api/auth/session")
+def api_auth_session():
+    user_id = session.get("user_id")
+    return jsonify({
+        "authenticated": bool(user_id),
+        "email": session.get("user_email") if user_id else None,
+    })
 
 
 @app.get("/")

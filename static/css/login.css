@@ -1,0 +1,908 @@
+/* ==========================================================================
+   SAIKOON STOCK APPLICATION — PREMIUM LOGIN EXPERIENCE
+   Aesthetic: Japanese minimalism × modern restaurant technology
+   ========================================================================== */
+
+:root {
+  --bg-deep: #07090e;
+  --bg-surface: rgba(15, 23, 42, 0.72);
+  --bg-card: rgba(17, 24, 39, 0.78);
+  --border-glass: rgba(255, 255, 255, 0.09);
+  --border-glass-hover: rgba(255, 255, 255, 0.18);
+  --brand-red: #e84c3d;
+  --brand-red-deep: #c93b2d;
+  --brand-red-glow: rgba(232, 76, 61, 0.38);
+  --gold-accent: #d4af37;
+  --gold-subtle: rgba(212, 175, 55, 0.15);
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --input-bg: rgba(10, 15, 26, 0.65);
+  --input-border: rgba(255, 255, 255, 0.12);
+  --input-border-focus: #e84c3d;
+  --radius-card: 24px;
+  --radius-input: 14px;
+  --radius-btn: 14px;
+  --shadow-card: 0 24px 64px -12px rgba(0, 0, 0, 0.65), 0 0 1px 1px rgba(255, 255, 255, 0.08);
+  --shadow-btn: 0 10px 24px -6px rgba(232, 76, 61, 0.45);
+  --shadow-sushi: 0 32px 64px rgba(0, 0, 0, 0.7), 0 12px 24px rgba(0, 0, 0, 0.5);
+
+  /* Mouse parallax offsets (updated via JS) */
+  --px: 0px;
+  --py: 0px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+}
+
+body.login-body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: var(--bg-deep);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(232, 76, 61, 0.14), transparent),
+    radial-gradient(ellipse 60% 40% at 85% 95%, rgba(17, 34, 64, 0.25), transparent),
+    radial-gradient(circle at 10% 80%, rgba(212, 175, 55, 0.05), transparent),
+    linear-gradient(180deg, #07090e 0%, #0d121d 100%);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  position: relative;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Atmospheric Glow Backgrounds */
+.ambient-glow {
+  position: fixed;
+  border-radius: 9999px;
+  pointer-events: none;
+  filter: blur(100px);
+  z-index: 1;
+}
+
+.glow-top {
+  top: -15%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 65vw;
+  height: 45vh;
+  background: radial-gradient(circle, var(--brand-red-glow) 0%, transparent 70%);
+  opacity: 0.7;
+}
+
+.glow-bottom {
+  bottom: -15%;
+  right: 5%;
+  width: 50vw;
+  height: 40vh;
+  background: radial-gradient(circle, rgba(30, 58, 95, 0.35) 0%, transparent 70%);
+  opacity: 0.8;
+}
+
+.ambient-grid-overlay {
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+  z-index: 1;
+  mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.9) 0%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.9) 0%, transparent 80%);
+}
+
+/* ==========================================================================
+   3D SUSHI ELEMENTS & ANIMATION STAGE
+   ========================================================================== */
+
+.sushi-stage {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+  perspective: 1200px;
+}
+
+.sushi-item {
+  position: absolute;
+  will-change: transform;
+  filter: drop-shadow(var(--shadow-sushi));
+  user-select: none;
+  pointer-events: none;
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.sushi-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Element 1: Salmon Roll (Top-Left) */
+.sushi-salmon-roll {
+  top: 8%;
+  left: 7%;
+  width: min(240px, 22vw);
+  transform: translate3d(calc(var(--px) * 0.07), calc(var(--py) * 0.07), 0);
+  animation: floatSalmonRoll 10s ease-in-out infinite alternate;
+}
+
+/* Element 2: Salmon Nigiri (Bottom-Right) */
+.sushi-salmon-nigiri {
+  bottom: 8%;
+  right: 6%;
+  width: min(320px, 28vw);
+  transform: translate3d(calc(var(--px) * -0.05), calc(var(--py) * -0.05), 0);
+  animation: floatSalmonNigiri 12s ease-in-out infinite alternate;
+}
+
+/* Element 3: Tuna Roll (Bottom-Left / Mid) */
+.sushi-tuna-roll {
+  bottom: 12%;
+  left: 9%;
+  width: min(200px, 18vw);
+  transform: translate3d(calc(var(--px) * 0.09), calc(var(--py) * 0.09), 0);
+  animation: floatTunaRoll 11s ease-in-out infinite alternate;
+}
+
+/* 3D Floating Keyframes */
+@keyframes floatSalmonRoll {
+  0% {
+    transform: translate3d(calc(var(--px) * 0.07), calc(var(--py) * 0.07), 0) rotate(-6deg) scale(0.98);
+  }
+  50% {
+    transform: translate3d(calc(var(--px) * 0.07 + 10px), calc(var(--py) * 0.07 - 18px), 20px) rotate(2deg) scale(1.02);
+  }
+  100% {
+    transform: translate3d(calc(var(--px) * 0.07 - 8px), calc(var(--py) * 0.07 + 12px), -10px) rotate(-3deg) scale(1);
+  }
+}
+
+@keyframes floatSalmonNigiri {
+  0% {
+    transform: translate3d(calc(var(--px) * -0.05), calc(var(--py) * -0.05), 0) rotate(4deg) scale(1);
+  }
+  50% {
+    transform: translate3d(calc(var(--px) * -0.05 - 14px), calc(var(--py) * -0.05 - 20px), 30px) rotate(-2deg) scale(1.03);
+  }
+  100% {
+    transform: translate3d(calc(var(--px) * -0.05 + 10px), calc(var(--py) * -0.05 + 14px), -15px) rotate(5deg) scale(0.98);
+  }
+}
+
+@keyframes floatTunaRoll {
+  0% {
+    transform: translate3d(calc(var(--px) * 0.09), calc(var(--py) * 0.09), 0) rotate(12deg) scale(0.96);
+  }
+  50% {
+    transform: translate3d(calc(var(--px) * 0.09 + 16px), calc(var(--py) * 0.09 - 14px), 25px) rotate(4deg) scale(1.02);
+  }
+  100% {
+    transform: translate3d(calc(var(--px) * 0.09 - 10px), calc(var(--py) * 0.09 + 18px), -12px) rotate(10deg) scale(0.99);
+  }
+}
+
+/* Atmospheric Floating Light Specks */
+.light-speck {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 230, 180, 0.7) 0%, rgba(232, 76, 61, 0.3) 60%, transparent 100%);
+  filter: blur(1px);
+  animation: pulseGlow 5s ease-in-out infinite alternate;
+}
+
+.speck-1 {
+  width: 6px;
+  height: 6px;
+  top: 25%;
+  right: 18%;
+  animation-duration: 4.5s;
+}
+
+.speck-2 {
+  width: 8px;
+  height: 8px;
+  bottom: 30%;
+  left: 22%;
+  animation-duration: 6s;
+}
+
+.speck-3 {
+  width: 5px;
+  height: 5px;
+  top: 70%;
+  right: 28%;
+  animation-duration: 5.2s;
+}
+
+.speck-4 {
+  width: 7px;
+  height: 7px;
+  top: 15%;
+  left: 35%;
+  animation-duration: 7s;
+}
+
+@keyframes pulseGlow {
+  0% {
+    opacity: 0.25;
+    transform: translateY(0) scale(0.9);
+  }
+  100% {
+    opacity: 0.85;
+    transform: translateY(-16px) scale(1.2);
+  }
+}
+
+/* ==========================================================================
+   LOGIN CARD & MAIN CONTAINER
+   ========================================================================== */
+
+.login-container {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 440px;
+  padding: 24px 18px;
+  margin: auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.login-card {
+  width: 100%;
+  background: var(--bg-card);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 40px 36px 32px;
+  position: relative;
+  overflow: hidden;
+  will-change: transform;
+  transform: translate3d(calc(var(--px) * 0.015), calc(var(--py) * 0.015), 0);
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.3s ease;
+  animation: cardEntrance 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.login-card:hover {
+  border-color: var(--border-glass-hover);
+  box-shadow:
+    0 32px 72px -12px rgba(0, 0, 0, 0.75),
+    0 0 1px 1px rgba(255, 255, 255, 0.12),
+    0 0 32px -4px rgba(232, 76, 61, 0.1);
+}
+
+/* Top Subtle Rim Line on Card */
+.login-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), var(--brand-red), rgba(255, 255, 255, 0.35), transparent);
+  pointer-events: none;
+}
+
+@keyframes cardEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ==========================================================================
+   BRAND HEADER & EXISTING LOGO
+   ========================================================================== */
+
+.brand-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.logo-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.logo-wrapper::after {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  background: radial-gradient(circle, var(--brand-red-glow) 0%, transparent 70%);
+  opacity: 0.55;
+  filter: blur(14px);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* The actual existing SAIKOON logo */
+.saikoon-logo {
+  position: relative;
+  z-index: 1;
+  width: auto;
+  max-width: 170px;
+  height: 52px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
+  transition: transform 0.3s ease;
+}
+
+.saikoon-logo:hover {
+  transform: scale(1.03);
+}
+
+.brand-badge-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.japanese-seal {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--brand-red);
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 6px var(--brand-red-glow);
+}
+
+.system-subtitle {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 2.2px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.welcome-heading {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+  margin-bottom: 4px;
+}
+
+.welcome-caption {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* ==========================================================================
+   ERROR BANNER
+   ========================================================================== */
+
+.auth-error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(220, 38, 38, 0.14);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  color: #fca5a5;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  margin-bottom: 20px;
+  animation: errorShake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+.auth-error-banner[hidden] {
+  display: none !important;
+}
+
+.error-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: #ef4444;
+}
+
+.error-text {
+  flex: 1;
+}
+
+@keyframes errorShake {
+  10%, 90% { transform: translate3d(-1px, 0, 0); }
+  20%, 80% { transform: translate3d(2px, 0, 0); }
+  30%, 50%, 70% { transform: translate3d(-3px, 0, 0); }
+  40%, 60% { transform: translate3d(3px, 0, 0); }
+}
+
+/* ==========================================================================
+   FORM INPUTS
+   ========================================================================== */
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.input-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.input-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.2px;
+}
+
+.forgot-link {
+  font-size: 0.78rem;
+  color: var(--brand-red);
+  text-decoration: none;
+  transition: color 0.2s ease, text-decoration 0.2s ease;
+}
+
+.forgot-link:hover,
+.forgot-link:focus-visible {
+  color: #ff6b5b;
+  text-decoration: underline;
+  outline: none;
+}
+
+.input-field-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-icon {
+  position: absolute;
+  left: 14px;
+  color: var(--text-muted);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+
+.form-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 14px 0 42px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-input);
+  color: var(--text-primary);
+  font-size: 0.92rem;
+  transition: all 0.22s ease;
+  outline: none;
+}
+
+.form-input.has-toggle {
+  padding-right: 44px;
+}
+
+.form-input::placeholder {
+  color: rgba(148, 163, 184, 0.35);
+}
+
+.form-input:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.form-input:focus {
+  border-color: var(--input-border-focus);
+  background: rgba(15, 23, 42, 0.85);
+  box-shadow: 0 0 0 3px rgba(232, 76, 61, 0.2);
+}
+
+.form-input:focus + .input-icon,
+.input-field-wrapper:focus-within .input-icon {
+  color: var(--brand-red);
+}
+
+/* Password Toggle Button */
+.password-toggle-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.password-toggle-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.password-toggle-btn:focus-visible {
+  outline: 2px solid var(--brand-red);
+  color: var(--text-primary);
+}
+
+.toggle-icon.is-hidden {
+  display: none;
+}
+
+/* ==========================================================================
+   SUBMIT BUTTON
+   ========================================================================== */
+
+.login-submit-btn {
+  position: relative;
+  width: 100%;
+  height: 50px;
+  margin-top: 6px;
+  background: linear-gradient(135deg, var(--brand-red) 0%, var(--brand-red-deep) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-btn);
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  box-shadow: var(--shadow-btn);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  overflow: hidden;
+  transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.login-submit-btn::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.24s ease;
+}
+
+.login-submit-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px -4px rgba(232, 76, 61, 0.55);
+}
+
+.login-submit-btn:hover::before {
+  opacity: 1;
+}
+
+.login-submit-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 6px 16px -2px rgba(232, 76, 61, 0.45);
+}
+
+.login-submit-btn:focus-visible {
+  outline: 3px solid rgba(232, 76, 61, 0.5);
+  outline-offset: 2px;
+}
+
+.login-submit-btn:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Loading Spinner on Button */
+.btn-spinner {
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-submit-btn.is-loading .btn-spinner {
+  display: inline-flex;
+}
+
+.spinner-svg {
+  animation: spin 0.85s linear infinite;
+}
+
+.spinner-track {
+  opacity: 0.25;
+}
+
+.spinner-head {
+  opacity: 0.95;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ==========================================================================
+   CARD FOOTER
+   ========================================================================== */
+
+.card-footer {
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  text-align: center;
+}
+
+.footer-tagline {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+  display: inline-block;
+}
+
+/* ==========================================================================
+   FORGOT PASSWORD NOTICE MODAL
+   ========================================================================== */
+
+.forgot-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 5, 9, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 18px;
+}
+
+.forgot-modal-backdrop[hidden] {
+  display: none !important;
+}
+
+.forgot-modal-card {
+  width: 100%;
+  max-width: 380px;
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 26px 24px 22px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+  text-align: center;
+  animation: modalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalPop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.forgot-modal-heading {
+  font-size: 1.15rem;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.forgot-modal-body {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.forgot-modal-close-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 22px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.forgot-modal-close-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN (Desktop, Tablet, Mobile)
+   ========================================================================== */
+
+/* Large Desktop (>= 1440px) */
+@media (min-width: 1440px) {
+  .sushi-salmon-roll {
+    width: 250px;
+    top: 10%;
+    left: 10%;
+  }
+  .sushi-salmon-nigiri {
+    width: 340px;
+    bottom: 9%;
+    right: 8%;
+  }
+  .sushi-tuna-roll {
+    width: 220px;
+    bottom: 14%;
+    left: 11%;
+  }
+}
+
+/* Tablet (768px - 1024px) */
+@media (max-width: 1024px) {
+  .sushi-salmon-roll {
+    width: 180px;
+    top: 5%;
+    left: 4%;
+  }
+  .sushi-salmon-nigiri {
+    width: 240px;
+    bottom: 5%;
+    right: 4%;
+  }
+  .sushi-tuna-roll {
+    width: 150px;
+    bottom: 8%;
+    left: 5%;
+    opacity: 0.85;
+  }
+}
+
+/* Mobile Devices (< 768px) */
+@media (max-width: 767px) {
+  body.login-body {
+    padding: 14px 12px;
+    align-items: flex-start;
+  }
+
+  .login-container {
+    padding: 12px 0 24px;
+    max-width: 100%;
+  }
+
+  .login-card {
+    padding: 30px 22px 24px;
+    border-radius: 20px;
+    transform: none !important;
+  }
+
+  .saikoon-logo {
+    max-width: 145px;
+    height: 44px;
+  }
+
+  .welcome-heading {
+    font-size: 1.3rem;
+  }
+
+  /* On mobile: keep 2 subtle sushi elements at peripheral edges, hide the 3rd to keep view super clean */
+  .sushi-tuna-roll {
+    display: none;
+  }
+
+  .sushi-salmon-roll {
+    top: -20px;
+    left: -20px;
+    width: 130px;
+    opacity: 0.6;
+    animation: floatSalmonRoll 14s ease-in-out infinite alternate;
+  }
+
+  .sushi-salmon-nigiri {
+    bottom: -15px;
+    right: -25px;
+    width: 170px;
+    opacity: 0.6;
+    animation: floatSalmonNigiri 16s ease-in-out infinite alternate;
+  }
+
+  .light-speck {
+    display: none;
+  }
+}
+
+/* Ultra Small Phones (< 380px) */
+@media (max-width: 380px) {
+  .login-card {
+    padding: 24px 16px 20px;
+  }
+  .welcome-heading {
+    font-size: 1.18rem;
+  }
+  .saikoon-logo {
+    max-width: 130px;
+    height: 38px;
+  }
+}
+
+/* ==========================================================================
+   REDUCED MOTION ACCESSIBILITY
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .sushi-item {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .login-card {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .light-speck {
+    animation: none !important;
+  }
+}

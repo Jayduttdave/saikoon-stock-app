@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#07090e">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Saikoon Stock">
+    <meta name="application-name" content="Saikoon Stock">
+    <title>Connexion • Saikoon Kitchen</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename=logo_src) }}">
+    <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/icon-192.png') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
+  </head>
+  <body class="login-body">
+    <!-- Atmospheric Ambient Background -->
+    <div class="ambient-glow glow-top" aria-hidden="true"></div>
+    <div class="ambient-glow glow-bottom" aria-hidden="true"></div>
+    <div class="ambient-grid-overlay" aria-hidden="true"></div>
+
+    <!-- Realistic 3D Sushi Elements Container -->
+    <div class="sushi-stage" id="sushi-stage" aria-hidden="true">
+      <!-- 3D Salmon Roll (Top-Left) -->
+      <div class="sushi-item sushi-salmon-roll" data-depth="0.06">
+        <picture>
+          <source srcset="{{ url_for('static', filename='images/sushi-salmon-roll.webp') }}" type="image/webp">
+          <img src="{{ url_for('static', filename='images/sushi-salmon-roll.png') }}" alt="" class="sushi-img" loading="eager" draggable="false">
+        </picture>
+      </div>
+
+      <!-- 3D Salmon Nigiri (Bottom-Right) -->
+      <div class="sushi-item sushi-salmon-nigiri" data-depth="0.04">
+        <picture>
+          <source srcset="{{ url_for('static', filename='images/sushi-salmon-nigiri.webp') }}" type="image/webp">
+          <img src="{{ url_for('static', filename='images/sushi-salmon-nigiri.png') }}" alt="" class="sushi-img" loading="eager" draggable="false">
+        </picture>
+      </div>
+
+      <!-- 3D Tuna Roll (Bottom-Left / Mid-Floating) -->
+      <div class="sushi-item sushi-tuna-roll" data-depth="0.08">
+        <picture>
+          <source srcset="{{ url_for('static', filename='images/sushi-tuna-roll.webp') }}" type="image/webp">
+          <img src="{{ url_for('static', filename='images/sushi-tuna-roll.png') }}" alt="" class="sushi-img" loading="eager" draggable="false">
+        </picture>
+      </div>
+
+      <!-- Floating Ambient Gold / Amber Light Specks -->
+      <div class="light-speck speck-1"></div>
+      <div class="light-speck speck-2"></div>
+      <div class="light-speck speck-3"></div>
+      <div class="light-speck speck-4"></div>
+    </div>
+
+    <!-- Main Login Interface Shell -->
+    <main class="login-container">
+      <div class="login-card" id="login-card">
+        <!-- Brand Header with Existing SAIKOON Logo -->
+        <header class="brand-header">
+          <div class="logo-wrapper">
+            <img src="{{ url_for('static', filename=logo_src) }}" alt="Logo Saikoon Kitchen" class="saikoon-logo" loading="eager">
+          </div>
+          <div class="brand-badge-row">
+            <span class="japanese-seal" aria-hidden="true">最高</span>
+            <span class="system-subtitle">GESTION DE STOCK</span>
+          </div>
+          <h1 class="welcome-heading">Bienvenue</h1>
+          <p class="welcome-caption">Accès réservé au personnel et à la direction</p>
+        </header>
+
+        <!-- Error / Status Notice -->
+        <div id="auth-error-banner" class="auth-error-banner" role="alert" aria-live="assertive" hidden>
+          <svg class="error-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18" aria-hidden="true">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+          </svg>
+          <span id="auth-error-text" class="error-text"></span>
+        </div>
+
+        <!-- Authentication Form -->
+        <form id="login-form" class="login-form" method="POST" action="/api/auth/login" novalidate>
+          <!-- Email Input Group -->
+          <div class="input-group">
+            <label for="login-email" class="input-label">Adresse email</label>
+            <div class="input-field-wrapper">
+              <span class="input-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
+                  <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                  <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                </svg>
+              </span>
+              <input
+                id="login-email"
+                name="email"
+                type="email"
+                class="form-input"
+                placeholder="votre-email@saikoon.fr"
+                required
+                autocomplete="email"
+                autocapitalize="none"
+                spellcheck="false"
+              >
+            </div>
+          </div>
+
+          <!-- Password Input Group -->
+          <div class="input-group">
+            <div class="input-label-row">
+              <label for="login-password" class="input-label">Mot de passe</label>
+              <a href="#forgot" id="forgot-password-link" class="forgot-link">Mot de passe oublié ?</a>
+            </div>
+            <div class="input-field-wrapper">
+              <span class="input-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
+                  <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                </svg>
+              </span>
+              <input
+                id="login-password"
+                name="password"
+                type="password"
+                class="form-input has-toggle"
+                placeholder="••••••••••••"
+                required
+                autocomplete="current-password"
+              >
+              <button
+                type="button"
+                id="password-toggle-btn"
+                class="password-toggle-btn"
+                aria-label="Afficher le mot de passe"
+                title="Afficher le mot de passe"
+              >
+                <!-- Eye Open Icon -->
+                <svg id="eye-icon-open" class="toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <!-- Eye Off Icon -->
+                <svg id="eye-icon-closed" class="toggle-icon is-hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Submit Button -->
+          <button type="submit" id="login-submit-btn" class="login-submit-btn">
+            <span class="btn-spinner" aria-hidden="true">
+              <svg class="spinner-svg" viewBox="0 0 24 24" fill="none" width="18" height="18">
+                <circle class="spinner-track" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                <path class="spinner-head" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+            </span>
+            <span class="btn-text">Se connecter</span>
+          </button>
+        </form>
+
+        <!-- Discreet Footer -->
+        <footer class="card-footer">
+          <p class="footer-tagline">
+            <span class="status-dot"></span>
+            Système d'inventaire sécurisé • Saikoon Kitchen
+          </p>
+        </footer>
+      </div>
+    </main>
+
+    <!-- Modal for Forgot Password Notice -->
+    <div id="forgot-modal" class="forgot-modal-backdrop" hidden>
+      <div class="forgot-modal-card" role="dialog" aria-modal="true" aria-labelledby="forgot-modal-title">
+        <h2 id="forgot-modal-title" class="forgot-modal-heading">Récupération de compte</h2>
+        <p class="forgot-modal-body">
+          Pour des raisons de sécurité, la réinitialisation des accès s'effectue directement auprès de la direction ou de l'administrateur Saikoon.
+        </p>
+        <button type="button" id="forgot-modal-close-btn" class="forgot-modal-close-btn">J'ai compris</button>
+      </div>
+    </div>
+
+    <!-- Client-side Logic Script -->
+    <script src="{{ url_for('static', filename='js/login.js') }}" defer></script>
+  </body>
+</html>
